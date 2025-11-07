@@ -34,12 +34,15 @@ async def get_all_tradeable_stocks() -> List[Dict]:
         
         client = TradingClient(api_key, secret, paper=True)
         
-        # Get all active assets
-        assets = client.get_all_assets(status='active')
+        # Get all assets (no status parameter)
+        assets = client.get_all_assets()
         
         stocks = []
         for asset in assets:
-            if asset.tradable and asset.fractionable and asset.status == 'active':
+            # Filter for active, tradable, fractionable stocks
+            if (hasattr(asset, 'status') and asset.status == 'active' and 
+                hasattr(asset, 'tradable') and asset.tradable and 
+                hasattr(asset, 'fractionable') and asset.fractionable):
                 stocks.append({
                     'symbol': asset.symbol,
                     'name': asset.name,
