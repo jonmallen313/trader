@@ -216,12 +216,11 @@ class AlpacaBroker(BrokerInterface):
     async def connect(self):
         """Connect to Alpaca."""
         try:
-            base_url = "https://paper-api.alpaca.markets" if self.paper_mode else "https://api.alpaca.markets"
-            
+            # New alpaca-py API uses paper=True/False parameter
             self.client = TradingClient(
                 api_key=self.api_key,
                 secret_key=self.secret_key,
-                base_url=base_url
+                paper=self.paper_mode  # Use paper parameter instead of base_url
             )
             
             # Test connection

@@ -40,7 +40,7 @@ WEBHOOK_PORT = int(os.getenv('WEBHOOK_PORT', os.getenv('PORT', 8000)))
 # Alpaca Paper Trading: https://app.alpaca.markets/paper/dashboard/overview
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET", "")
-ALPACA_BASE_URL = "https://paper-api.alpaca.markets"  # Paper trading endpoint with live data
+# Note: alpaca-py library handles paper/live switching via paper=True parameter
 
 # Binance Testnet (Paper Trading): https://testnet.binance.vision/
 BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
