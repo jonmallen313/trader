@@ -35,3 +35,14 @@ RISK_FREE_RATE = float(os.getenv('RISK_FREE_RATE', 0.02))
 # Webhook Security
 SECRET_WEBHOOK_KEY = os.getenv('SECRET_WEBHOOK_KEY', "your_secret_key_here")
 WEBHOOK_PORT = int(os.getenv('WEBHOOK_PORT', os.getenv('PORT', 8000)))
+
+# Broker API Keys (Paper Trading - No Deposit Required!)
+# Alpaca Paper Trading: https://app.alpaca.markets/paper/dashboard/overview
+ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
+ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET", "")
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets"  # Paper trading endpoint with live data
+
+# Binance Testnet (Paper Trading): https://testnet.binance.vision/
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "")
+BINANCE_TESTNET = True  # Use testnet for paper trading with live market data

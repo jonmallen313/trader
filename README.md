@@ -49,6 +49,30 @@ trader/
 
 ### 🚄 Railway Cloud Deployment (Recommended)
 
+**Paper Trading - No Deposit Required!**
+
+This system is configured for **100% paper trading** with **live market data**:
+
+**Option 1: Alpaca Paper Trading** (Stocks/ETFs/Crypto)
+- Sign up free: https://app.alpaca.markets/signup
+- Get paper trading API keys (no deposit needed!)
+- Real-time market data with $100K virtual cash
+
+**Option 2: Binance Testnet** (Crypto)  
+- Sign up free: https://testnet.binance.vision/
+- Get testnet API keys (no deposit needed!)
+- Unlimited fake crypto with real price feeds
+
+**Option 3: Mock Mode** (Testing)
+- No API keys needed at all
+- Built-in realistic market simulation
+
+📖 **Full paper trading setup guide**: `docs/paper-trading-setup.md`
+
+---
+
+### Deploy to Railway:
+
 The easiest way to run this system 24/7 is on Railway:
 
 1. **Fork/Clone this repository**
