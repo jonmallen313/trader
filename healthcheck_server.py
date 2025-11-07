@@ -112,7 +112,15 @@ async def initialize_trading_system():
         logger.info("🚀 Starting trading system...")
         system_status["trading_system"] = "starting"
         
-        await trading_system.start_system()
+        # Start system WITHOUT starting webhook server (we'll use existing FastAPI app)
+        await trading_system.start_system(start_webhook=False)
+        
+        # Mount webhook routes to this app
+        if hasattr(trading_system, 'webhook_server') and trading_system.webhook_server:
+            logger.info("📡 Mounting webhook routes to health check server...")
+            # Include the webhook router in our app
+            app.include_router(trading_system.webhook_server.app.router, prefix="/webhook")
+            logger.info("✅ Webhook routes mounted at /webhook/*")
         
         system_status["trading_system"] = "running"
         system_status["initialized"] = True
@@ -120,6 +128,8 @@ async def initialize_trading_system():
         
     except Exception as e:
         logger.error(f"❌ Failed to initialize trading system: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         system_status["trading_system"] = f"error: {str(e)}"
         system_status["health"] = "degraded"
 

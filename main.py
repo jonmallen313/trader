@@ -298,8 +298,12 @@ class AITradingSystem:
         if target_type == "TAKE_PROFIT":
             self.logger.info("🎉 CONGRATULATIONS! Trading goal achieved!")
         
-    async def start_system(self):
-        """Start the complete trading system."""
+    async def start_system(self, start_webhook: bool = True):
+        """Start the complete trading system.
+        
+        Args:
+            start_webhook: If False, skips starting webhook server (used when running in healthcheck_server)
+        """
         self.logger.info("Starting AI Trading System...")
         
         try:
@@ -311,22 +315,28 @@ class AITradingSystem:
                 await self.run_backtest()
             else:
                 # Start live/paper trading
-                await self.run_live_trading()
+                await self.run_live_trading(start_webhook=start_webhook)
                 
         except Exception as e:
             self.logger.error(f"System error: {e}")
             raise
     
-    async def run_live_trading(self):
-        """Run live or paper trading mode."""
+    async def run_live_trading(self, start_webhook: bool = True):
+        """Run live or paper trading mode.
         
-        # Start webhook server FIRST (Railway needs health check immediately)
+        Args:
+            start_webhook: If False, skips starting webhook server
+        """
+        
+        # Start webhook server only if requested (Railway health check handles this)
         webhook_task = None
-        if self.webhook_server:
+        if self.webhook_server and start_webhook:
             webhook_task = asyncio.create_task(self.webhook_server.start_server())
             # Give server a moment to start and be ready for health checks
             await asyncio.sleep(2)
             self.logger.info("✅ Webhook server started and ready for health checks")
+        elif self.webhook_server and not start_webhook:
+            self.logger.info("✅ Webhook routes will be mounted to existing server")
         
         tasks = []
         
