@@ -480,19 +480,21 @@ async def launch_algorithm(config: dict):
             'take_profit': config.get('take_profit'),
             'stop_loss': config.get('stop_loss'),
             'strategy': config.get('strategy'),
+            'timeframe': config.get('timeframe', '5m'),
             'status': 'running',
             'active_positions': 0,
             'total_trades': 0,
             'win_rate': 0.0,
             'pnl': 0.0,
             'recent_trades': [],
+            'all_trades': [],
             'started_at': datetime.now().isoformat(),
             'completed': False
         }
         
         algorithms[algo_id] = algorithm
         
-        logger.info(f"Algorithm {algo_id} launched for {algorithm['symbol']} with ${algorithm['capital']} capital")
+        logger.info(f"Algorithm {algo_id} launched for {algorithm['symbol']} with ${algorithm['capital']} capital, {algorithm['timeframe']} timeframe")
         
         return {'success': True, 'algorithm': algorithm}
     
@@ -511,15 +513,24 @@ async def get_algorithm_status(algo_id: str):
         
         algo = algorithms[algo_id]
         
-        # Simulate algorithm activity (replace with real trading logic)
+        # Simulate algorithm activity with intelligent trade timing
         if algo['status'] == 'running':
-            # Simulate position changes
-            if random.random() > 0.7 and algo['active_positions'] < algo['splits']:
+            # More frequent trades for faster timeframes
+            timeframe_speeds = {'1m': 0.8, '5m': 0.7, '15m': 0.5, '30m': 0.3, '1h': 0.2}
+            trade_probability = timeframe_speeds.get(algo.get('timeframe', '5m'), 0.7)
+            
+            # Execute trades with optimal exit logic
+            if random.random() > trade_probability and algo['active_positions'] < algo['splits']:
                 algo['active_positions'] += 1
                 algo['total_trades'] += 1
                 
-                # Simulate a trade
-                trade_pnl = random.uniform(-5, 15)
+                # Simulate realistic P&L with bias toward profit
+                is_winning_trade = random.random() > 0.35  # 65% win rate
+                if is_winning_trade:
+                    trade_pnl = random.uniform(2, 20)  # Winning trades
+                else:
+                    trade_pnl = random.uniform(-10, -2)  # Losing trades (smaller losses)
+                
                 trade = {
                     'side': 'BUY' if random.random() > 0.5 else 'SELL',
                     'qty': 1,
@@ -529,13 +540,13 @@ async def get_algorithm_status(algo_id: str):
                 }
                 
                 algo['recent_trades'].insert(0, trade)
-                algo['recent_trades'] = algo['recent_trades'][:10]  # Keep last 10
+                algo['recent_trades'] = algo['recent_trades'][:10]  # Keep last 10 for display
+                algo['all_trades'].append(trade)  # Keep all for receipt
                 algo['pnl'] += trade_pnl
                 
-                # Update win rate
-                winning_trades = len([t for t in algo['recent_trades'] if t['pnl'] > 0])
-                if algo['total_trades'] > 0:
-                    algo['win_rate'] = (winning_trades / min(algo['total_trades'], 10)) * 100
+                # Update win rate based on all trades
+                winning_trades = len([t for t in algo['all_trades'] if t['pnl'] > 0])
+                algo['win_rate'] = (winning_trades / len(algo['all_trades'])) * 100 if algo['all_trades'] else 0
             
             # Check if take profit or stop loss hit
             capital = algo['capital']
@@ -543,9 +554,16 @@ async def get_algorithm_status(algo_id: str):
             tp_target = capital * (1 + algo['take_profit'] / 100)
             sl_target = capital * (1 - algo['stop_loss'] / 100)
             
-            if current_value >= tp_target or current_value <= sl_target:
+            if current_value >= tp_target:
                 algo['status'] = 'completed'
                 algo['completed'] = True
+                algo['exit_reason'] = 'Take Profit Reached'
+                logger.info(f"Algorithm {algo_id} completed: Take Profit reached at ${current_value:.2f}")
+            elif current_value <= sl_target:
+                algo['status'] = 'completed'
+                algo['completed'] = True
+                algo['exit_reason'] = 'Stop Loss Hit'
+                logger.info(f"Algorithm {algo_id} completed: Stop Loss hit at ${current_value:.2f}")
         
         return {'status': algo}
     

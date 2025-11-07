@@ -540,6 +540,11 @@
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }
         
+        .form-control option {
+            background: #1a1f3a;
+            color: var(--text-primary);
+        }
+        
         .form-control:focus {
             outline: none;
             border-color: var(--accent-purple);
@@ -722,6 +727,162 @@
         .btn-stop:hover {
             background: rgba(239, 68, 68, 0.3);
         }
+        
+        /* Progress Bar */
+        .progress-section {
+            margin-bottom: 24px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 12px;
+        }
+        
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        
+        .progress-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+        
+        .progress-percentage {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--accent-purple);
+        }
+        
+        .progress-track {
+            position: relative;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            overflow: visible;
+            margin-bottom: 12px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-purple) 100%);
+            border-radius: 12px;
+            transition: width 0.5s ease;
+        }
+        
+        .progress-markers {
+            position: absolute;
+            top: -28px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .marker {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.5);
+        }
+        
+        .marker-sl {
+            color: var(--accent-red);
+            border: 1px solid var(--accent-red);
+        }
+        
+        .marker-start {
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+        
+        .marker-tp {
+            color: var(--accent-green);
+            border: 1px solid var(--accent-green);
+        }
+        
+        .progress-values {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        
+        .trades-section {
+            margin-bottom: 20px;
+        }
+        
+        .trades-header {
+            font-size: 12px;
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+        
+        /* Receipt Styling */
+        .algo-receipt {
+            margin-top: 32px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+        
+        .receipt-header {
+            text-align: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .receipt-header h3 {
+            font-size: 20px;
+            font-weight: 700;
+            margin: 0 0 8px 0;
+        }
+        
+        .receipt-date {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .receipt-summary {
+            margin-bottom: 24px;
+        }
+        
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+            font-size: 14px;
+        }
+        
+        .summary-row.highlight {
+            background: rgba(88, 80, 236, 0.1);
+            padding: 16px 12px;
+            margin: 8px 0;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            font-weight: 700;
+        }
+        
+        .receipt-trades {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        
+        #receiptTradesList .trade-item {
+            font-size: 12px;
+            padding: 10px 12px;
+        }
     </style>
 </head>
 <body>
@@ -898,9 +1059,20 @@
                                     </select>
                                 </div>
                                 
+                                <!-- Trading Timeframe -->
+                                <div class="form-group">
+                                    <label class="form-label">Trading Timeframe</label>
+                                    <select id="algoTimeframe" class="form-control">
+                                        <option value="1m">1 Minute (Ultra Fast)</option>
+                                        <option value="5m" selected>5 Minutes (Fast)</option>
+                                        <option value="15m">15 Minutes (Moderate)</option>
+                                        <option value="30m">30 Minutes (Slower)</option>
+                                        <option value="1h">1 Hour (Long Term)</option>
+                                    </select>
+                                </div>
+                                
                                 <!-- Start Button -->
                                 <button class="btn-launch" onclick="launchAlgorithm()">
-                                    <span class="btn-icon">🚀</span>
                                     <span class="btn-text">Launch Algorithm</span>
                                 </button>
                             </div>
@@ -912,14 +1084,34 @@
                                     <span class="status-text">RUNNING</span>
                                 </div>
                                 
+                                <!-- Progress Bar -->
+                                <div class="progress-section">
+                                    <div class="progress-header">
+                                        <span class="progress-label">Progress to Target</span>
+                                        <span class="progress-percentage" id="progressPercent">0%</span>
+                                    </div>
+                                    <div class="progress-track">
+                                        <div class="progress-fill" id="progressBar" style="width: 0%"></div>
+                                        <div class="progress-markers">
+                                            <div class="marker marker-sl" id="slMarker">SL</div>
+                                            <div class="marker marker-start">START</div>
+                                            <div class="marker marker-tp" id="tpMarker">TP</div>
+                                        </div>
+                                    </div>
+                                    <div class="progress-values">
+                                        <span id="currentValue">$100.00</span>
+                                        <span id="targetValue">$110.00</span>
+                                    </div>
+                                </div>
+                                
                                 <div class="status-metrics">
+                                    <div class="metric">
+                                        <div class="metric-label">Net P&L</div>
+                                        <div class="metric-value" id="statusPnL">$0.00</div>
+                                    </div>
                                     <div class="metric">
                                         <div class="metric-label">Active Positions</div>
                                         <div class="metric-value" id="statusPositions">0/5</div>
-                                    </div>
-                                    <div class="metric">
-                                        <div class="metric-label">P&L</div>
-                                        <div class="metric-value" id="statusPnL">$0.00</div>
                                     </div>
                                     <div class="metric">
                                         <div class="metric-label">Win Rate</div>
@@ -931,12 +1123,61 @@
                                     </div>
                                 </div>
                                 
-                                <div class="live-trades" id="liveTrades">
-                                    <!-- Live trades will appear here -->
+                                <div class="trades-section">
+                                    <div class="trades-header">Live Trades</div>
+                                    <div class="live-trades" id="liveTrades">
+                                        <div style="text-align: center; color: var(--text-secondary); padding: 20px;">
+                                            Waiting for trades...
+                                        </div>
+                                    </div>
                                 </div>
                                 
                                 <button class="btn-stop" onclick="stopAlgorithm()">
                                     Stop Algorithm
+                                </button>
+                            </div>
+                            
+                            <!-- Algorithm Receipt -->
+                            <div id="algoReceipt" class="algo-receipt" style="display: none;">
+                                <div class="receipt-header">
+                                    <h3>Trading Session Complete</h3>
+                                    <div class="receipt-date" id="receiptDate"></div>
+                                </div>
+                                
+                                <div class="receipt-summary">
+                                    <div class="summary-row">
+                                        <span>Starting Capital</span>
+                                        <span id="receiptStarting">$100.00</span>
+                                    </div>
+                                    <div class="summary-row">
+                                        <span>Ending Balance</span>
+                                        <span id="receiptEnding">$110.00</span>
+                                    </div>
+                                    <div class="summary-row highlight">
+                                        <span>Net Profit/Loss</span>
+                                        <span id="receiptNet" class="positive">+$10.00</span>
+                                    </div>
+                                    <div class="summary-row">
+                                        <span>Total Trades</span>
+                                        <span id="receiptTotalTrades">15</span>
+                                    </div>
+                                    <div class="summary-row">
+                                        <span>Win Rate</span>
+                                        <span id="receiptWinRate">73.3%</span>
+                                    </div>
+                                    <div class="summary-row">
+                                        <span>Duration</span>
+                                        <span id="receiptDuration">12m 34s</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="receipt-trades">
+                                    <div class="trades-header">All Trades</div>
+                                    <div id="receiptTradesList"></div>
+                                </div>
+                                
+                                <button class="btn-launch" onclick="resetAlgorithm()">
+                                    <span class="btn-text">Start New Session</span>
                                 </button>
                             </div>
                         </div>
@@ -1372,6 +1613,7 @@
         
         let runningAlgorithm = null;
         let algoUpdateInterval = null;
+        let algoStartTime = null;
         
         async function launchAlgorithm() {
             const config = {
@@ -1380,7 +1622,8 @@
                 splits: parseInt(document.getElementById('algoSplits').value),
                 take_profit: parseFloat(document.getElementById('algoTakeProfit').value),
                 stop_loss: parseFloat(document.getElementById('algoStopLoss').value),
-                strategy: document.getElementById('algoStrategyType').value
+                strategy: document.getElementById('algoStrategyType').value,
+                timeframe: document.getElementById('algoTimeframe').value
             };
             
             if (!config.symbol || !config.capital || !config.splits) {
@@ -1399,22 +1642,48 @@
                 
                 if (result.success) {
                     runningAlgorithm = result.algorithm;
+                    algoStartTime = new Date();
                     
                     // Show status panel, hide config form
                     document.querySelector('.algo-config-form').style.display = 'none';
                     document.getElementById('algoStatus').style.display = 'block';
+                    document.getElementById('algoReceipt').style.display = 'none';
+                    
+                    // Initialize progress bar
+                    updateProgressBar(config.capital, config.capital, config);
                     
                     // Start live updates
                     updateAlgorithmStatus();
                     algoUpdateInterval = setInterval(updateAlgorithmStatus, 2000);
-                    
-                    alert('🚀 Algorithm launched successfully!');
                 } else {
                     alert(`Failed to launch: ${result.error}`);
                 }
             } catch (error) {
                 console.error('Error launching algorithm:', error);
                 alert(`Error: ${error.message}`);
+            }
+        }
+        
+        function updateProgressBar(currentValue, startingCapital, config) {
+            const tpTarget = startingCapital * (1 + config.take_profit / 100);
+            const slTarget = startingCapital * (1 - config.stop_loss / 100);
+            
+            // Calculate progress (0-100%)
+            const range = tpTarget - slTarget;
+            const progress = ((currentValue - slTarget) / range) * 100;
+            const clampedProgress = Math.max(0, Math.min(100, progress));
+            
+            document.getElementById('progressBar').style.width = `${clampedProgress}%`;
+            document.getElementById('progressPercent').textContent = `${clampedProgress.toFixed(1)}%`;
+            document.getElementById('currentValue').textContent = `$${currentValue.toFixed(2)}`;
+            document.getElementById('targetValue').textContent = `$${tpTarget.toFixed(2)}`;
+            
+            // Update progress bar color based on position
+            const progressBar = document.getElementById('progressBar');
+            if (currentValue < startingCapital) {
+                progressBar.style.background = 'linear-gradient(90deg, var(--accent-red) 0%, var(--accent-red) 100%)';
+            } else {
+                progressBar.style.background = 'linear-gradient(90deg, var(--accent-green) 0%, var(--accent-purple) 100%)';
             }
         }
         
@@ -1426,15 +1695,25 @@
                 const data = await response.json();
                 
                 if (data.status) {
-                    document.getElementById('statusPositions').textContent = `${data.status.active_positions}/${data.status.total_splits}`;
-                    document.getElementById('statusPnL').textContent = `$${data.status.pnl.toFixed(2)}`;
-                    document.getElementById('statusPnL').className = data.status.pnl >= 0 ? 'metric-value positive' : 'metric-value negative';
-                    document.getElementById('statusWinRate').textContent = `${data.status.win_rate.toFixed(1)}%`;
-                    document.getElementById('statusTrades').textContent = data.status.total_trades;
+                    const status = data.status;
+                    const currentValue = status.capital + status.pnl;
+                    
+                    // Update progress bar
+                    updateProgressBar(currentValue, status.capital, {
+                        take_profit: status.take_profit,
+                        stop_loss: status.stop_loss
+                    });
+                    
+                    // Update metrics
+                    document.getElementById('statusPositions').textContent = `${status.active_positions}/${status.splits}`;
+                    document.getElementById('statusPnL').textContent = `$${status.pnl.toFixed(2)}`;
+                    document.getElementById('statusPnL').className = status.pnl >= 0 ? 'metric-value positive' : 'metric-value negative';
+                    document.getElementById('statusWinRate').textContent = `${status.win_rate.toFixed(1)}%`;
+                    document.getElementById('statusTrades').textContent = status.total_trades;
                     
                     // Update live trades
-                    if (data.status.recent_trades && data.status.recent_trades.length > 0) {
-                        const tradesHtml = data.status.recent_trades.map(trade => `
+                    if (status.recent_trades && status.recent_trades.length > 0) {
+                        const tradesHtml = status.recent_trades.map(trade => `
                             <div class="trade-item">
                                 <div>
                                     <span style="font-weight: 700; color: ${trade.side === 'BUY' ? 'var(--accent-green)' : 'var(--accent-red)'}">
@@ -1451,9 +1730,9 @@
                     }
                     
                     // Check if algorithm completed
-                    if (data.status.completed) {
-                        stopAlgorithm();
-                        alert(`✅ Algorithm completed!\n\nFinal P&L: $${data.status.pnl.toFixed(2)}\nTotal Trades: ${data.status.total_trades}\nWin Rate: ${data.status.win_rate.toFixed(1)}%`);
+                    if (status.completed) {
+                        clearInterval(algoUpdateInterval);
+                        showReceipt(status);
                     }
                 }
             } catch (error) {
@@ -1461,15 +1740,73 @@
             }
         }
         
-        function stopAlgorithm() {
-            if (runningAlgorithm) {
-                clearInterval(algoUpdateInterval);
-                runningAlgorithm = null;
-                
-                // Show config form, hide status panel
-                document.querySelector('.algo-config-form').style.display = 'flex';
-                document.getElementById('algoStatus').style.display = 'none';
+        function showReceipt(status) {
+            const duration = algoStartTime ? Math.floor((new Date() - algoStartTime) / 1000) : 0;
+            const minutes = Math.floor(duration / 60);
+            const seconds = duration % 60;
+            
+            const endingBalance = status.capital + status.pnl;
+            const winningTrades = status.all_trades ? status.all_trades.filter(t => t.pnl > 0).length : 0;
+            const winRate = status.total_trades > 0 ? (winningTrades / status.total_trades) * 100 : 0;
+            
+            // Hide status, show receipt
+            document.getElementById('algoStatus').style.display = 'none';
+            document.getElementById('algoReceipt').style.display = 'block';
+            
+            // Populate receipt
+            document.getElementById('receiptDate').textContent = new Date().toLocaleString();
+            document.getElementById('receiptStarting').textContent = `$${status.capital.toFixed(2)}`;
+            document.getElementById('receiptEnding').textContent = `$${endingBalance.toFixed(2)}`;
+            document.getElementById('receiptNet').textContent = `${status.pnl >= 0 ? '+' : ''}$${status.pnl.toFixed(2)}`;
+            document.getElementById('receiptNet').className = status.pnl >= 0 ? 'positive' : 'negative';
+            document.getElementById('receiptTotalTrades').textContent = status.total_trades;
+            document.getElementById('receiptWinRate').textContent = `${winRate.toFixed(1)}%`;
+            document.getElementById('receiptDuration').textContent = `${minutes}m ${seconds}s`;
+            
+            // Show all trades
+            if (status.all_trades && status.all_trades.length > 0) {
+                const allTradesHtml = status.all_trades.map((trade, idx) => `
+                    <div class="trade-item">
+                        <div>
+                            <span style="color: var(--text-secondary);">#${idx + 1}</span>
+                            <span style="font-weight: 700; color: ${trade.side === 'BUY' ? 'var(--accent-green)' : 'var(--accent-red)'}; margin-left: 8px;">
+                                ${trade.side}
+                            </span>
+                            <span style="margin-left: 8px;">${trade.qty} @ $${trade.price.toFixed(2)}</span>
+                        </div>
+                        <div style="font-weight: 700; ${trade.pnl >= 0 ? 'color: var(--accent-green)' : 'color: var(--accent-red)'}">
+                            ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}
+                        </div>
+                    </div>
+                `).join('');
+                document.getElementById('receiptTradesList').innerHTML = allTradesHtml;
             }
+        }
+        
+        function stopAlgorithm() {
+            if (runningAlgorithm && algoUpdateInterval) {
+                clearInterval(algoUpdateInterval);
+                
+                // Fetch final status and show receipt
+                fetch(`/api/algorithms/${runningAlgorithm.id}/status`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status) {
+                            showReceipt(data.status);
+                        }
+                    })
+                    .catch(error => console.error('Error fetching final status:', error));
+            }
+        }
+        
+        function resetAlgorithm() {
+            runningAlgorithm = null;
+            algoStartTime = null;
+            
+            // Show config form, hide receipt
+            document.querySelector('.algo-config-form').style.display = 'flex';
+            document.getElementById('algoReceipt').style.display = 'none';
+            document.getElementById('algoStatus').style.display = 'none';
         }
         
         function loadTradingViewChart(symbol) {
