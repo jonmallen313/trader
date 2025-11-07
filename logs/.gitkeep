@@ -1,0 +1,4 @@
+# Logs directory
+# This directory stores trading system logs
+
+*.log

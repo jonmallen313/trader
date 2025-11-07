@@ -1,0 +1,45 @@
+# Environment variables - keep secret!
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/*.log
+
+# Data files
+*.db
+*.sqlite
+*.csv
+data/historical/
+
+# Model files
+models/saved/
+*.pkl
+*.joblib
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Trading specific
+trades_history.json
+backtest_results/

@@ -1,0 +1,1 @@
+web: python main.py paper --capital 100 --target 2000
