@@ -40,6 +40,12 @@ system_status = {
 trading_task = None
 auto_started = False
 
+# Mount API routes immediately (before trading system starts)
+logger.info("📊 Mounting API routes early...")
+from src.api import router as api_router
+app.include_router(api_router)
+logger.info("✅ API routes mounted at /api/*")
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint - responds immediately, auto-starts trading in background."""
@@ -146,12 +152,11 @@ async def initialize_trading_system():
             app.include_router(trading_system.webhook_server.app.router, prefix="/webhook")
             logger.info("✅ Webhook routes mounted at /webhook/*")
         
-        # Mount API routes for live data
-        logger.info("📊 Mounting API routes...")
-        from src.api import router as api_router, set_trading_system
+        # Set trading system reference for API
+        logger.info("📊 Connecting trading system to API...")
+        from src.api import set_trading_system
         set_trading_system(trading_system)
-        app.include_router(api_router)
-        logger.info("✅ API routes mounted at /api/*")
+        logger.info("✅ Trading system connected to API")
         
         system_status["trading_system"] = "running"
         system_status["initialized"] = True
