@@ -1,7 +1,5 @@
 """
-Ultra-lightweight health check server for Railway.
-Responds immediately to health checks, does NOT start trading system automatically.
-To start trading: POST to /start endpoint
+Health check server that starts immediately, then boots trading system in background.
 """
 import os
 import asyncio
@@ -33,15 +31,24 @@ app.add_middleware(
 start_time = datetime.now()
 system_status = {
     "health": "healthy",
-    "trading_system": "not_started",
+    "trading_system": "starting",
     "initialized": False
 }
 
 trading_task = None
+auto_started = False
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint - responds immediately."""
+    """Health check endpoint - responds immediately, auto-starts trading in background."""
+    global auto_started, trading_task
+    
+    # Auto-start trading system on first health check if not already started
+    if not auto_started and not trading_task:
+        logger.info("🚀 Auto-starting trading system after health check...")
+        trading_task = asyncio.create_task(initialize_trading_system())
+        auto_started = True
+    
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
