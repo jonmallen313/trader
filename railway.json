@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python main.py paper --capital 100 --target 2000",
+    "startCommand": "python healthcheck_server.py",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
