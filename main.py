@@ -116,7 +116,7 @@ class AITradingSystem:
             if self.mode == "live":
                 # Add Binance if keys available
                 api_key = os.getenv('BINANCE_API_KEY')
-                secret_key = os.getenv('BINANCE_SECRET')
+                secret_key = os.getenv('BINANCE_API_SECRET')
                 
                 if api_key and secret_key:
                     binance = BinanceBroker(api_key, secret_key, paper_mode=False)
@@ -125,7 +125,7 @@ class AITradingSystem:
                 
                 # Add Alpaca if keys available
                 alpaca_key = os.getenv('ALPACA_API_KEY')
-                alpaca_secret = os.getenv('ALPACA_SECRET')
+                alpaca_secret = os.getenv('ALPACA_API_SECRET')
                 
                 if alpaca_key and alpaca_secret:
                     alpaca = AlpacaBroker(alpaca_key, alpaca_secret, paper_mode=False)
@@ -176,14 +176,20 @@ class AITradingSystem:
             # Connect all brokers (with error handling)
             try:
                 await self.broker_manager.connect_all()
+                self.logger.info(f"Connected brokers: {len([b for b in self.broker_manager.brokers if b.is_connected])}")
             except Exception as e:
                 self.logger.warning(f"Broker connection failed: {e}")
-                # If no brokers connected, ensure we have at least a mock broker
-                if not any(b.is_connected for b in self.broker_manager.brokers):
-                    self.logger.info("No brokers connected - adding mock broker fallback")
-                    mock_broker = MockBroker(INITIAL_CAPITAL)
-                    self.broker_manager.add_broker(mock_broker, is_primary=True)
-                    await mock_broker.connect()
+            
+            # Ensure we have at least one connected broker
+            connected_brokers = [b for b in self.broker_manager.brokers if b.is_connected]
+            if not connected_brokers:
+                self.logger.warning("⚠️  No brokers successfully connected - adding MockBroker fallback")
+                self.logger.info("🔑 To use real paper trading, add ALPACA_API_KEY and ALPACA_API_SECRET to Railway")
+                mock_broker = MockBroker(INITIAL_CAPITAL)
+                self.broker_manager.brokers.clear()  # Clear failed brokers
+                self.broker_manager.add_broker(mock_broker, is_primary=True)
+                await mock_broker.connect()
+                self.logger.info(f"✅ MockBroker connected with ${INITIAL_CAPITAL} starting capital")
                     
         except Exception as e:
             self.logger.error(f"Error in setup_brokers: {e}. Using mock broker as fallback.")
