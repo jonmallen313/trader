@@ -351,6 +351,71 @@ async def get_stock_detail(symbol: str):
         logger.error(f"Error getting stock detail: {e}")
         return {'error': str(e)}
 
+@router.post("/orders")
+async def place_order(order: dict):
+    """Place a trading order."""
+    try:
+        import os
+        from alpaca.trading.client import TradingClient
+        from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        
+        api_key = os.getenv('ALPACA_API_KEY')
+        secret = os.getenv('ALPACA_API_SECRET')
+        
+        if not api_key or not secret:
+            return {'success': False, 'error': 'API credentials not configured'}
+        
+        client = TradingClient(api_key, secret, paper=True)
+        
+        # Parse order parameters
+        symbol = order.get('symbol')
+        side = OrderSide.BUY if order.get('side', '').upper() == 'BUY' else OrderSide.SELL
+        qty = order.get('qty', 1)
+        order_type = order.get('type', 'market')
+        
+        # Create order request
+        if order_type == 'market':
+            order_request = MarketOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                side=side,
+                time_in_force=TimeInForce.DAY
+            )
+        elif order_type == 'limit':
+            limit_price = order.get('limit_price')
+            if not limit_price:
+                return {'success': False, 'error': 'Limit price required for limit orders'}
+            
+            order_request = LimitOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                side=side,
+                time_in_force=TimeInForce.DAY,
+                limit_price=limit_price
+            )
+        else:
+            return {'success': False, 'error': f'Unsupported order type: {order_type}'}
+        
+        # Submit order
+        submitted_order = client.submit_order(order_request)
+        
+        logger.info(f"Order placed: {side.value} {qty} {symbol} @ {order_type}")
+        
+        return {
+            'success': True,
+            'order_id': submitted_order.id,
+            'symbol': symbol,
+            'side': side.value,
+            'qty': qty,
+            'type': order_type,
+            'status': submitted_order.status
+        }
+    
+    except Exception as e:
+        logger.error(f"Error placing order: {e}")
+        return {'success': False, 'error': str(e)}
+
 @router.get("/algorithms")
 async def get_algorithms():
     """Get all user-created algorithms."""

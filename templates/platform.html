@@ -396,6 +396,43 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        /* Trading Buttons */
+        .btn-success {
+            background: var(--accent-green);
+            color: white;
+            font-weight: 700;
+            font-size: 16px;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-success:hover {
+            background: #0ea678;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
+        
+        .btn-danger {
+            background: var(--accent-red);
+            color: white;
+            font-weight: 700;
+            font-size: 16px;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+        }
     </style>
 </head>
 <body>
@@ -484,6 +521,59 @@
                     <p class="page-subtitle" id="stockDetailName">Company Name</p>
                 </div>
                 
+                <!-- Live Price Bar -->
+                <div class="info-section" id="livePriceBar" style="background: rgba(88, 80, 236, 0.1); border-left: 4px solid var(--accent-purple);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">Live Price</div>
+                            <div style="font-size: 32px; font-weight: 700;" id="livePrice">--</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">Change</div>
+                            <div style="font-size: 24px; font-weight: 700;" id="liveChange">--</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">Volume</div>
+                            <div style="font-size: 20px; font-weight: 600;" id="liveVolume">--</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">AI Signal</div>
+                            <div id="liveSignal">--</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Trading Controls -->
+                <div class="info-section">
+                    <h3 class="section-title">⚡ Quick Trade</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Quantity</label>
+                            <input type="number" id="tradeQty" class="search-input" placeholder="1" value="1" min="1">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Order Type</label>
+                            <select id="orderType" class="search-input">
+                                <option value="market">Market</option>
+                                <option value="limit">Limit</option>
+                                <option value="stop">Stop</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="limitPriceContainer" style="display: none; margin-top: 16px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: 600;">Limit Price</label>
+                        <input type="number" id="limitPrice" class="search-input" placeholder="0.00" step="0.01">
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px;">
+                        <button class="btn btn-success" onclick="placeOrder('buy')" style="background: var(--accent-green); border: none;">
+                            🚀 BUY
+                        </button>
+                        <button class="btn btn-danger" onclick="placeOrder('sell')" style="background: var(--accent-red); border: none;">
+                            📉 SELL
+                        </button>
+                    </div>
+                </div>
+                
                 <div class="chart-container">
                     <!-- TradingView Widget -->
                     <div id="tradingview_widget"></div>
@@ -491,15 +581,25 @@
                 
                 <div class="info-section">
                     <h3 class="section-title">🧠 AI Insights</h3>
-                    <div id="aiInsights">Loading...</div>
+                    <div id="aiInsights">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            Analyzing market data...
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="info-section">
                     <h3 class="section-title">📰 Recent News</h3>
-                    <div id="stockNews">Loading...</div>
+                    <div id="stockNews">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            Loading news...
+                        </div>
+                    </div>
                 </div>
                 
-                <button class="btn btn-primary" onclick="showAlgorithmBuilder()">Create Algorithm for this Stock</button>
+                <button class="btn btn-primary" onclick="showAlgorithmBuilder()">🤖 Create Algorithm for this Stock</button>
             </div>
             
             <!-- Algorithm Lineup Page -->
@@ -588,7 +688,9 @@
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.classList.remove('active');
             });
-            event.target.closest('.nav-item').classList.add('active');
+            if (event && event.target) {
+                event.target.closest('.nav-item').classList.add('active');
+            }
             
             // Update pages
             document.querySelectorAll('.page').forEach(page => {
@@ -613,7 +715,15 @@
         function showStockDetail(symbol) {
             currentSymbol = symbol;
             document.getElementById('stockDetailSymbol').textContent = symbol;
-            showPage('stock-detail');
+            
+            // Manually switch to stock detail page
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            document.getElementById('stock-detail').classList.add('active');
+            
+            currentPage = 'stock-detail';
+            
             loadStockDetail(symbol);
             loadTradingViewChart(symbol);
         }
@@ -698,25 +808,172 @@
         
         async function loadStockDetail(symbol) {
             try {
+                // Load basic info
                 const response = await fetch(`/api/stock/${symbol}`);
                 const data = await response.json();
-                
                 document.getElementById('stockDetailName').textContent = data.name || symbol;
-                document.getElementById('aiInsights').innerHTML = `
-                    <p style="color: var(--text-secondary);">
-                        AI analysis for ${symbol} will appear here with buy/sell signals, 
-                        confidence levels, and microtrend predictions.
-                    </p>
-                `;
+                
+                // Start live price updates
+                updateLivePrice(symbol);
+                setInterval(() => updateLivePrice(symbol), 5000); // Update every 5 seconds
+                
+                // Load AI predictions
+                loadAIPredictions(symbol);
+                
+                // Load news (placeholder for now)
                 document.getElementById('stockNews').innerHTML = `
-                    <p style="color: var(--text-secondary);">
-                        Recent news and events for ${symbol} will be displayed here.
-                    </p>
+                    <div style="color: var(--text-secondary);">
+                        <p>📰 News integration coming soon. Will show:</p>
+                        <ul style="margin-left: 20px; margin-top: 8px;">
+                            <li>Recent company announcements</li>
+                            <li>Earnings reports and estimates</li>
+                            <li>Market sentiment analysis</li>
+                            <li>Relevant news articles</li>
+                        </ul>
+                    </div>
                 `;
             } catch (error) {
                 console.error('Error loading stock detail:', error);
             }
         }
+        
+        async function updateLivePrice(symbol) {
+            try {
+                const response = await fetch('/api/stocks');
+                const data = await response.json();
+                const stock = data.stocks?.find(s => s.symbol === symbol);
+                
+                if (stock) {
+                    document.getElementById('livePrice').textContent = `$${stock.price.toFixed(2)}`;
+                    document.getElementById('liveChange').textContent = `${stock.change >= 0 ? '+' : ''}${stock.change.toFixed(2)}%`;
+                    document.getElementById('liveChange').className = stock.change >= 0 ? 'positive' : 'negative';
+                    document.getElementById('liveVolume').textContent = stock.volume.toLocaleString();
+                }
+            } catch (error) {
+                console.error('Error updating live price:', error);
+            }
+        }
+        
+        async function loadAIPredictions(symbol) {
+            try {
+                const response = await fetch('/api/predictions');
+                const data = await response.json();
+                const prediction = data.predictions?.find(p => p.symbol === symbol);
+                
+                if (prediction) {
+                    const signalClass = prediction.signal === 'BUY' ? 'signal-buy' : 
+                                       prediction.signal === 'SELL' ? 'signal-sell' : 'signal-hold';
+                    
+                    document.getElementById('liveSignal').innerHTML = `
+                        <span class="ai-signal ${signalClass}">${prediction.signal}</span>
+                    `;
+                    
+                    document.getElementById('aiInsights').innerHTML = `
+                        <div style="display: grid; gap: 16px;">
+                            <div style="background: rgba(88, 80, 236, 0.1); padding: 16px; border-radius: 8px;">
+                                <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">Signal</div>
+                                <div style="font-size: 24px; font-weight: 700;">
+                                    <span class="ai-signal ${signalClass}" style="font-size: 18px;">${prediction.signal}</span>
+                                </div>
+                            </div>
+                            <div style="background: rgba(88, 80, 236, 0.1); padding: 16px; border-radius: 8px;">
+                                <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">Confidence</div>
+                                <div style="font-size: 24px; font-weight: 700;">${prediction.confidence}%</div>
+                                <div style="background: var(--bg-secondary); height: 8px; border-radius: 4px; margin-top: 8px; overflow: hidden;">
+                                    <div style="background: var(--accent-purple); height: 100%; width: ${prediction.confidence}%;"></div>
+                                </div>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                <div style="background: rgba(88, 80, 236, 0.1); padding: 16px; border-radius: 8px;">
+                                    <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">RSI</div>
+                                    <div style="font-size: 20px; font-weight: 700;">${prediction.rsi.toFixed(1)}</div>
+                                </div>
+                                <div style="background: rgba(88, 80, 236, 0.1); padding: 16px; border-radius: 8px;">
+                                    <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 4px;">MACD</div>
+                                    <div style="font-size: 20px; font-weight: 700;">${prediction.macd.toFixed(4)}</div>
+                                </div>
+                            </div>
+                            <p style="color: var(--text-secondary); margin-top: 8px;">
+                                🤖 AI model analyzing microtrends in real-time. Predictions update every 30 seconds based on price action, volume, and technical indicators.
+                            </p>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('aiInsights').innerHTML = `
+                        <p style="color: var(--text-secondary);">
+                            ⏳ Collecting data for ${symbol}... AI predictions will appear once sufficient market data is available.
+                        </p>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading AI predictions:', error);
+                document.getElementById('aiInsights').innerHTML = `
+                    <p style="color: var(--text-secondary);">
+                        Unable to load AI predictions. Please try again later.
+                    </p>
+                `;
+            }
+        }
+        
+        async function placeOrder(side) {
+            const symbol = currentSymbol;
+            const qty = document.getElementById('tradeQty').value;
+            const orderType = document.getElementById('orderType').value;
+            const limitPrice = document.getElementById('limitPrice').value;
+            
+            if (!symbol || !qty) {
+                alert('Please enter quantity');
+                return;
+            }
+            
+            try {
+                const order = {
+                    symbol: symbol,
+                    side: side.toUpperCase(),
+                    qty: parseFloat(qty),
+                    type: orderType,
+                    time_in_force: 'day'
+                };
+                
+                if (orderType === 'limit' && limitPrice) {
+                    order.limit_price = parseFloat(limitPrice);
+                }
+                
+                const response = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(order)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    alert(`✅ ${side.toUpperCase()} order placed successfully!\n\nSymbol: ${symbol}\nQty: ${qty}\nType: ${orderType}`);
+                    // Refresh positions
+                    loadPositions();
+                } else {
+                    alert(`❌ Order failed: ${result.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error('Error placing order:', error);
+                alert(`❌ Order failed: ${error.message}`);
+            }
+        }
+        
+        // Show/hide limit price input based on order type
+        document.addEventListener('DOMContentLoaded', function() {
+            const orderTypeSelect = document.getElementById('orderType');
+            if (orderTypeSelect) {
+                orderTypeSelect.addEventListener('change', function() {
+                    const limitContainer = document.getElementById('limitPriceContainer');
+                    if (this.value === 'limit') {
+                        limitContainer.style.display = 'block';
+                    } else {
+                        limitContainer.style.display = 'none';
+                    }
+                });
+            }
+        });
         
         function loadTradingViewChart(symbol) {
             new TradingView.widget({
