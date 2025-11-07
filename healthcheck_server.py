@@ -60,21 +60,27 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Root endpoint - serves dashboard."""
+    """Root endpoint - serves modern dashboard."""
     try:
-        dashboard_path = Path(__file__).parent / "templates" / "dashboard.html"
+        dashboard_path = Path(__file__).parent / "templates" / "modern_dashboard.html"
         if dashboard_path.exists():
             with open(dashboard_path, 'r') as f:
                 return HTMLResponse(content=f.read())
         else:
-            # Fallback to JSON if HTML not found
-            return {
-                "status": "online",
-                "name": "AI Trading System",
-                "health_endpoint": "/health",
-                "start_endpoint": "/start",
-                "system_status": system_status
-            }
+            # Fallback to basic dashboard
+            dashboard_path = Path(__file__).parent / "templates" / "dashboard.html"
+            if dashboard_path.exists():
+                with open(dashboard_path, 'r') as f:
+                    return HTMLResponse(content=f.read())
+            else:
+                # Final fallback to JSON
+                return {
+                    "status": "online",
+                    "name": "AI Trading System",
+                    "health_endpoint": "/health",
+                    "start_endpoint": "/start",
+                    "system_status": system_status
+                }
     except Exception as e:
         logger.error(f"Error serving dashboard: {e}")
         return {
@@ -139,6 +145,13 @@ async def initialize_trading_system():
             # Include the webhook router in our app
             app.include_router(trading_system.webhook_server.app.router, prefix="/webhook")
             logger.info("✅ Webhook routes mounted at /webhook/*")
+        
+        # Mount API routes for live data
+        logger.info("📊 Mounting API routes...")
+        from src.api import router as api_router, set_trading_system
+        set_trading_system(trading_system)
+        app.include_router(api_router)
+        logger.info("✅ API routes mounted at /api/*")
         
         system_status["trading_system"] = "running"
         system_status["initialized"] = True
