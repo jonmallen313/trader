@@ -464,6 +464,95 @@ async def create_algorithm(algo_config: dict):
         logger.error(f"Error creating algorithm: {e}")
         return {'success': False, 'error': str(e)}
 
+@router.post("/algorithms/launch")
+async def launch_algorithm(config: dict):
+    """Launch a live trading algorithm."""
+    try:
+        import random
+        
+        algo_id = f"algo_{datetime.now().timestamp()}"
+        
+        algorithm = {
+            'id': algo_id,
+            'symbol': config.get('symbol'),
+            'capital': config.get('capital'),
+            'splits': config.get('splits'),
+            'take_profit': config.get('take_profit'),
+            'stop_loss': config.get('stop_loss'),
+            'strategy': config.get('strategy'),
+            'status': 'running',
+            'active_positions': 0,
+            'total_trades': 0,
+            'win_rate': 0.0,
+            'pnl': 0.0,
+            'recent_trades': [],
+            'started_at': datetime.now().isoformat(),
+            'completed': False
+        }
+        
+        algorithms[algo_id] = algorithm
+        
+        logger.info(f"Algorithm {algo_id} launched for {algorithm['symbol']} with ${algorithm['capital']} capital")
+        
+        return {'success': True, 'algorithm': algorithm}
+    
+    except Exception as e:
+        logger.error(f"Error launching algorithm: {e}")
+        return {'success': False, 'error': str(e)}
+
+@router.get("/algorithms/{algo_id}/status")
+async def get_algorithm_status(algo_id: str):
+    """Get live status of running algorithm."""
+    try:
+        import random
+        
+        if algo_id not in algorithms:
+            return {'error': 'Algorithm not found'}
+        
+        algo = algorithms[algo_id]
+        
+        # Simulate algorithm activity (replace with real trading logic)
+        if algo['status'] == 'running':
+            # Simulate position changes
+            if random.random() > 0.7 and algo['active_positions'] < algo['splits']:
+                algo['active_positions'] += 1
+                algo['total_trades'] += 1
+                
+                # Simulate a trade
+                trade_pnl = random.uniform(-5, 15)
+                trade = {
+                    'side': 'BUY' if random.random() > 0.5 else 'SELL',
+                    'qty': 1,
+                    'price': random.uniform(100, 200),
+                    'pnl': trade_pnl,
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                algo['recent_trades'].insert(0, trade)
+                algo['recent_trades'] = algo['recent_trades'][:10]  # Keep last 10
+                algo['pnl'] += trade_pnl
+                
+                # Update win rate
+                winning_trades = len([t for t in algo['recent_trades'] if t['pnl'] > 0])
+                if algo['total_trades'] > 0:
+                    algo['win_rate'] = (winning_trades / min(algo['total_trades'], 10)) * 100
+            
+            # Check if take profit or stop loss hit
+            capital = algo['capital']
+            current_value = capital + algo['pnl']
+            tp_target = capital * (1 + algo['take_profit'] / 100)
+            sl_target = capital * (1 - algo['stop_loss'] / 100)
+            
+            if current_value >= tp_target or current_value <= sl_target:
+                algo['status'] = 'completed'
+                algo['completed'] = True
+        
+        return {'status': algo}
+    
+    except Exception as e:
+        logger.error(f"Error getting algorithm status: {e}")
+        return {'error': str(e)}
+
 @router.get("/algorithms/{algo_id}")
 async def get_algorithm(algo_id: str):
     """Get specific algorithm details."""
