@@ -133,16 +133,40 @@ class AITradingSystem:
                     self.logger.info("Added Alpaca live broker")
                     
             elif self.mode == "paper":
-                # Try to add paper trading brokers, but fall back to mock if they fail
-                api_key = os.getenv('BINANCE_API_KEY', 'test_key')
-                secret_key = os.getenv('BINANCE_SECRET', 'test_secret')
+                # Priority 1: Try Alpaca Paper Trading (not geo-restricted, free, real data)
+                alpaca_key = os.getenv('ALPACA_API_KEY')
+                alpaca_secret = os.getenv('ALPACA_API_SECRET')
                 
-                try:
-                    binance_paper = BinanceBroker(api_key, secret_key, paper_mode=True)
-                    self.broker_manager.add_broker(binance_paper, is_primary=True)
-                    self.logger.info("Added Binance paper broker")
-                except Exception as e:
-                    self.logger.warning(f"Binance not available: {e}. Using mock broker.")
+                if alpaca_key and alpaca_secret:
+                    try:
+                        alpaca_paper = AlpacaBroker(alpaca_key, alpaca_secret, paper_mode=True)
+                        self.broker_manager.add_broker(alpaca_paper, is_primary=True)
+                        self.logger.info("✅ Added Alpaca paper trading broker (real market data)")
+                    except Exception as e:
+                        self.logger.warning(f"Alpaca setup failed: {e}")
+                else:
+                    self.logger.warning("⚠️  No ALPACA_API_KEY found. Using mock broker.")
+                    self.logger.warning("📖 Get free Alpaca paper trading keys: https://app.alpaca.markets/signup")
+                
+                # Priority 2: Try Binance (might be geo-restricted on Railway)
+                if not self.broker_manager.brokers:
+                    api_key = os.getenv('BINANCE_API_KEY', 'test_key')
+                    secret_key = os.getenv('BINANCE_SECRET', 'test_secret')
+                    
+                    try:
+                        binance_paper = BinanceBroker(api_key, secret_key, paper_mode=True)
+                        self.broker_manager.add_broker(binance_paper, is_primary=True)
+                        self.logger.info("Added Binance paper broker")
+                    except Exception as e:
+                        self.logger.warning(f"Binance not available (geo-restricted): {e}")
+                
+                # Priority 3: Fallback to MockBroker
+                if not self.broker_manager.brokers:
+                    self.logger.warning("⚠️  No real brokers available - using MockBroker for simulation")
+                    self.logger.warning("🔑 Add ALPACA_API_KEY and ALPACA_API_SECRET for real paper trading")
+                    mock_broker = MockBroker(INITIAL_CAPITAL)
+                    self.broker_manager.add_broker(mock_broker, is_primary=True)
+                    self.logger.info("Using MockBroker with simulated data")
                 
             else:  # backtest or testing
                 mock_broker = MockBroker(INITIAL_CAPITAL)

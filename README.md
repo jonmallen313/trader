@@ -45,33 +45,48 @@ trader/
 └── README.md                 # This file
 ```
 
-## 🛠️ Installation
+## � Quick Start - Get Trading in 2 Minutes!
 
-### 🚄 Railway Cloud Deployment (Recommended)
+### ⚡ Alpaca Paper Trading (Recommended - Works Everywhere!)
 
-**Paper Trading - No Deposit Required!**
+**FREE paper trading with real market data - no geo-restrictions!**
 
-This system is configured for **100% paper trading** with **live market data**:
+1. **Sign up** (free): https://app.alpaca.markets/signup
+2. **Get API keys**: Go to Paper Trading → API Keys
+3. **Add to Railway**:
+   ```bash
+   ALPACA_API_KEY=PKxxxxxxxxx
+   ALPACA_API_SECRET=yyyyyyyyyyyy
+   ```
+4. **Deploy** - Your AI trader starts immediately!
 
-**Option 1: Alpaca Paper Trading** (Stocks/ETFs/Crypto)
-- Sign up free: https://app.alpaca.markets/signup
-- Get paper trading API keys (no deposit needed!)
-- Real-time market data with $100K virtual cash
+📖 **Full guide**: `docs/alpaca-setup-guide.md`
 
-**Option 2: Binance Testnet** (Crypto)  
-- Sign up free: https://testnet.binance.vision/
-- Get testnet API keys (no deposit needed!)
-- Unlimited fake crypto with real price feeds
-
-**Option 3: Mock Mode** (Testing)
-- No API keys needed at all
-- Built-in realistic market simulation
-
-📖 **Full paper trading setup guide**: `docs/paper-trading-setup.md`
+### What You Get:
+- ✅ Real-time US stock & crypto prices
+- ✅ $100K virtual cash (our system uses $100)
+- ✅ Trade stocks: AAPL, TSLA, NVDA, SPY, QQQ
+- ✅ Trade crypto: BTCUSD, ETHUSD, SOLUSD
+- ✅ **Zero geo-restrictions** (works on Railway)
+- ✅ **100% free forever**
 
 ---
 
-### Deploy to Railway:
+### Alternative Options
+
+**Option 2: Binance Testnet** (Crypto only - may be geo-restricted)
+- Sign up: https://testnet.binance.vision/
+- Get unlimited fake crypto
+- Note: Blocked in some regions (including Railway servers)
+
+**Option 3: Mock Mode** (Testing only)
+- No API keys needed
+- Built-in simulation
+- Perfect for testing AI models
+
+📖 **Full setup guide**: `docs/paper-trading-setup.md`
+
+### Local Development
 
 The easiest way to run this system 24/7 is on Railway:
 
