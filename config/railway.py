@@ -12,14 +12,15 @@ class RailwayConfig:
     
     def __init__(self):
         self.is_railway = os.getenv('RAILWAY_ENVIRONMENT') is not None
-        self.port = int(os.getenv('PORT', os.getenv('RAILWAY_PORT', 8000)))
+        # Railway injects PORT variable - this is critical for health checks
+        self.port = int(os.getenv('PORT', 8000))
         self.environment = os.getenv('ENVIRONMENT', 'development')
         
     def setup_environment(self):
         """Setup Railway environment variables."""
         if self.is_railway:
-            # Set default values for Railway deployment
-            os.environ.setdefault('WEBHOOK_PORT', str(self.port))
+            # Ensure WEBHOOK_PORT uses the same PORT that Railway provides
+            os.environ['WEBHOOK_PORT'] = str(self.port)
             os.environ.setdefault('PAPER_MODE', 'True')
             os.environ.setdefault('LOG_LEVEL', 'INFO')
             

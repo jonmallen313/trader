@@ -12,6 +12,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, validator
 import uvicorn
@@ -68,6 +69,15 @@ class WebhookServer:
         self.start_time = datetime.now()
         self.signal_history = []
         self.logger = logging.getLogger(__name__)
+        
+        # Add CORS middleware to allow Railway healthchecks
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],  # Allow all origins for healthcheck.railway.app
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
         
         # Setup routes
         self._setup_routes()
@@ -201,12 +211,16 @@ class WebhookServer:
                 return {"status": "info", "message": "System already stopped"}
         
         @self.app.get("/health")
-        async def health_check():
-            """Health check endpoint."""
+        async def health_check(request: Request):
+            """
+            Health check endpoint for Railway deployment.
+            Railway uses hostname 'healthcheck.railway.app' for health checks.
+            """
             return {
                 "status": "healthy",
                 "timestamp": datetime.now().isoformat(),
-                "uptime": (datetime.now() - self.start_time).total_seconds()
+                "uptime": (datetime.now() - self.start_time).total_seconds(),
+                "port": self.port
             }
         
         @self.app.get("/")
