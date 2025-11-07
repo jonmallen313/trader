@@ -1,11 +1,12 @@
 """
-Combined health check and trading system launcher.
-Starts health endpoint immediately, then initializes trading system in background.
+Ultra-lightweight health check server for Railway.
+Responds immediately to health checks, does NOT start trading system automatically.
+To start trading: POST to /start endpoint
 """
 import os
 import asyncio
 import logging
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from datetime import datetime
@@ -32,9 +33,11 @@ app.add_middleware(
 start_time = datetime.now()
 system_status = {
     "health": "healthy",
-    "trading_system": "initializing",
+    "trading_system": "not_started",
     "initialized": False
 }
+
+trading_task = None
 
 @app.get("/health")
 async def health_check():
@@ -53,6 +56,7 @@ async def root():
         "status": "online",
         "name": "AI Trading System",
         "health_endpoint": "/health",
+        "start_endpoint": "/start",
         "system_status": system_status
     }
 
@@ -60,10 +64,29 @@ async def root():
 async def get_status():
     """Get system status."""
     return {
-        "status": "running" if system_status["initialized"] else "initializing",
+        "status": "running" if system_status["initialized"] else "ready",
         "uptime": (datetime.now() - start_time).total_seconds(),
         "health": system_status["health"],
         "trading_system": system_status["trading_system"]
+    }
+
+@app.post("/start")
+async def start_trading():
+    """Start the trading system."""
+    global trading_task
+    
+    if trading_task and not trading_task.done():
+        return {"status": "already_running", "message": "Trading system is already running"}
+    
+    if system_status["initialized"]:
+        return {"status": "already_initialized", "message": "Trading system already initialized"}
+    
+    # Start trading system in background
+    trading_task = asyncio.create_task(initialize_trading_system())
+    
+    return {
+        "status": "starting",
+        "message": "Trading system initialization started"
     }
 
 async def initialize_trading_system():
@@ -73,6 +96,7 @@ async def initialize_trading_system():
         system_status["trading_system"] = "loading"
         
         # Import and start the main trading system
+        logger.info("📦 Importing main module...")
         from main import AITradingSystem
         
         logger.info("📦 Creating trading system instance...")
@@ -92,17 +116,11 @@ async def initialize_trading_system():
         system_status["trading_system"] = f"error: {str(e)}"
         system_status["health"] = "degraded"
 
-@app.on_event("startup")
-async def startup_event():
-    """Start background tasks on server startup."""
-    logger.info("🏥 Health check server started - ready for Railway health checks")
-    # Start trading system initialization in background
-    asyncio.create_task(initialize_trading_system())
-
 if __name__ == "__main__":
     port = int(os.getenv('PORT', 8000))
-    logger.info(f"🚀 Starting server on 0.0.0.0:{port}")
+    logger.info(f"🚀 Starting health check server on 0.0.0.0:{port}")
     logger.info(f"📍 Health endpoint: http://0.0.0.0:{port}/health")
+    logger.info(f"🎯 Trading start endpoint: http://0.0.0.0:{port}/start")
     
     uvicorn.run(
         app,
