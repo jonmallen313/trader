@@ -72,20 +72,63 @@ async def get_stocks():
                                 'timestamp': latest.timestamp.isoformat()
                             })
         
-        # If no data from feeds, return demo data
+        # If no data from feeds, fetch real-time data from Alpaca
         if not stocks_data:
-            symbols = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT']
-            for symbol in symbols:
-                stocks_data.append({
-                    'symbol': symbol,
-                    'price': 0.0,
-                    'change': 0.0,
-                    'volume': 0,
-                    'bid': 0.0,
-                    'ask': 0.0,
-                    'timestamp': datetime.now().isoformat(),
-                    'status': 'waiting_for_data'
-                })
+            try:
+                import os
+                from alpaca.data.historical import StockHistoricalDataClient
+                from alpaca.data.requests import StockLatestBarRequest
+                
+                api_key = os.getenv('ALPACA_API_KEY')
+                secret = os.getenv('ALPACA_API_SECRET')
+                
+                if api_key and secret:
+                    data_client = StockHistoricalDataClient(api_key, secret)
+                    symbols = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT', 'GOOGL', 'AMZN', 'META']
+                    
+                    # Get latest bars (1-minute data)
+                    request = StockLatestBarRequest(symbol_or_symbols=symbols)
+                    bars = data_client.get_stock_latest_bar(request)
+                    
+                    for symbol in symbols:
+                        if symbol in bars:
+                            bar = bars[symbol]
+                            
+                            # Calculate change from open to close
+                            change = ((bar.close - bar.open) / bar.open) * 100 if bar.open > 0 else 0.0
+                            
+                            stocks_data.append({
+                                'symbol': symbol,
+                                'price': round(bar.close, 2),
+                                'change': round(change, 2),
+                                'volume': int(bar.volume),
+                                'high': round(bar.high, 2),
+                                'low': round(bar.low, 2),
+                                'timestamp': bar.timestamp.isoformat() if hasattr(bar, 'timestamp') else datetime.now().isoformat()
+                            })
+                else:
+                    # No credentials - return demo data
+                    for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT']:
+                        stocks_data.append({
+                            'symbol': symbol,
+                            'price': 0.0,
+                            'change': 0.0,
+                            'volume': 0,
+                            'timestamp': datetime.now().isoformat(),
+                            'status': 'no_credentials'
+                        })
+            except Exception as e:
+                logger.error(f"Error fetching Alpaca data: {e}")
+                # Return demo data on error
+                for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT']:
+                    stocks_data.append({
+                        'symbol': symbol,
+                        'price': 0.0,
+                        'change': 0.0,
+                        'volume': 0,
+                        'timestamp': datetime.now().isoformat(),
+                        'status': 'error'
+                    })
         
         return {'stocks': stocks_data, 'timestamp': datetime.now().isoformat()}
     
@@ -132,6 +175,7 @@ async def get_positions():
     try:
         positions = []
         
+        # Try from trading system first
         if trading_system and trading_system.autopilot:
             for pos in trading_system.autopilot.active_positions.values():
                 positions.append({
@@ -143,6 +187,34 @@ async def get_positions():
                     'unrealized_pnl': round(pos.unrealized_pnl, 2),
                     'entry_time': pos.entry_time.isoformat() if pos.entry_time else None,
                 })
+            
+            if positions:
+                return {'positions': positions, 'count': len(positions)}
+        
+        # Fallback: fetch directly from Alpaca
+        try:
+            import os
+            from alpaca.trading.client import TradingClient
+            
+            api_key = os.getenv('ALPACA_API_KEY')
+            secret = os.getenv('ALPACA_API_SECRET')
+            
+            if api_key and secret:
+                client = TradingClient(api_key, secret, paper=True)
+                alpaca_positions = client.get_all_positions()
+                
+                for pos in alpaca_positions:
+                    positions.append({
+                        'symbol': pos.symbol,
+                        'side': 'LONG' if float(pos.qty) > 0 else 'SHORT',
+                        'entry_price': round(float(pos.avg_entry_price), 2),
+                        'current_price': round(float(pos.current_price), 2),
+                        'quantity': abs(float(pos.qty)),
+                        'unrealized_pnl': round(float(pos.unrealized_pl), 2),
+                        'entry_time': None,
+                    })
+        except Exception as e:
+            logger.error(f"Error fetching positions from Alpaca: {e}")
         
         return {'positions': positions, 'count': len(positions)}
     
@@ -164,6 +236,7 @@ async def get_account():
             'progress': 0.0,
         }
         
+        # Try to get from trading system first
         if trading_system and trading_system.broker_manager:
             broker = trading_system.broker_manager.get_primary_broker()
             if broker and broker.is_connected:
@@ -176,8 +249,37 @@ async def get_account():
                         account_data['pnl'] = account_data['equity'] - 100.0
                         account_data['pnl_percent'] = (account_data['pnl'] / 100.0) * 100
                         account_data['progress'] = (account_data['equity'] / 2000.0) * 100
+                        return account_data
                 except Exception as e:
-                    logger.error(f"Error fetching account: {e}")
+                    logger.error(f"Error fetching account from broker: {e}")
+        
+        # Fallback: fetch directly from Alpaca
+        try:
+            import os
+            from alpaca.trading.client import TradingClient
+            
+            api_key = os.getenv('ALPACA_API_KEY')
+            secret = os.getenv('ALPACA_API_SECRET')
+            
+            if api_key and secret:
+                client = TradingClient(api_key, secret, paper=True)
+                account = client.get_account()
+                
+                equity = float(account.equity)
+                cash = float(account.cash)
+                buying_power = float(account.buying_power)
+                
+                account_data = {
+                    'balance': cash,
+                    'equity': equity,
+                    'buying_power': buying_power,
+                    'pnl': equity - 100000.0,  # Starting paper trading balance
+                    'pnl_percent': ((equity - 100000.0) / 100000.0) * 100,
+                    'target': 2000.0,
+                    'progress': (equity / 102000.0) * 100,  # Progress to $102k (2% gain on $100k)
+                }
+        except Exception as e:
+            logger.error(f"Error fetching account from Alpaca: {e}")
         
         return account_data
     
