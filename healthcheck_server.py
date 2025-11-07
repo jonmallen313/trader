@@ -66,15 +66,15 @@ async def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Root endpoint - serves modern dashboard."""
+    """Root endpoint - serves full trading platform."""
     try:
-        dashboard_path = Path(__file__).parent / "templates" / "modern_dashboard.html"
-        if dashboard_path.exists():
-            with open(dashboard_path, 'r') as f:
+        platform_path = Path(__file__).parent / "templates" / "platform.html"
+        if platform_path.exists():
+            with open(platform_path, 'r') as f:
                 return HTMLResponse(content=f.read())
         else:
-            # Fallback to basic dashboard
-            dashboard_path = Path(__file__).parent / "templates" / "dashboard.html"
+            # Fallback to modern dashboard
+            dashboard_path = Path(__file__).parent / "templates" / "modern_dashboard.html"
             if dashboard_path.exists():
                 with open(dashboard_path, 'r') as f:
                     return HTMLResponse(content=f.read())
@@ -88,7 +88,7 @@ async def root():
                     "system_status": system_status
                 }
     except Exception as e:
-        logger.error(f"Error serving dashboard: {e}")
+        logger.error(f"Error serving platform: {e}")
         return {
             "status": "online",
             "name": "AI Trading System",

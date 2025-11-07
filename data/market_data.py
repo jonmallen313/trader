@@ -287,32 +287,49 @@ class BinanceWebSocketFeed(WebSocketDataFeed):
 class AlpacaWebSocketFeed(WebSocketDataFeed):
     """Alpaca websocket data feed for US stock markets."""
     
+    _instance = None  # Singleton to prevent multiple connections
+    _stream = None
+    
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
     def __init__(self, symbols: List[str], api_key: str, secret_key: str):
+        if hasattr(self, '_initialized'):
+            return  # Already initialized
         super().__init__(symbols)
         self.api_key = api_key
         self.secret_key = secret_key
+        self._initialized = True
         
     async def start(self):
-        """Start Alpaca websocket connection."""
+        """Start Alpaca websocket connection (singleton)."""
+        if self._stream is not None and self.is_running:
+            self.logger.info("Alpaca WebSocket already running")
+            return
+            
         try:
             from alpaca.data.live import StockDataStream
             
             self.is_running = True
             
-            # Create Alpaca stream
-            self.stream = StockDataStream(self.api_key, self.secret_key)
+            # Create Alpaca stream (only once)
+            if self._stream is None:
+                self._stream = StockDataStream(self.api_key, self.secret_key)
+                # Subscribe to quotes
+                self._stream.subscribe_quotes(self._handle_quote, *self.symbols)
+                self.logger.info(f"Starting Alpaca WebSocket for {len(self.symbols)} symbols")
             
-            # Subscribe to quotes
-            self.stream.subscribe_quotes(self._handle_quote, *self.symbols)
-            
-            self.logger.info(f"Starting Alpaca WebSocket for {len(self.symbols)} symbols")
-            
-            await self.stream._run_forever()
+            # Run forever (but only one instance)
+            await self._stream._run_forever()
             
         except ImportError:
             self.logger.error("alpaca-py not installed. Install with: pip install alpaca-py")
         except Exception as e:
             self.logger.error(f"Alpaca connection error: {e}")
+            self.is_running = False
+            self._stream = None  # Reset on error
             
     async def _handle_quote(self, quote):
         """Handle incoming quote data."""

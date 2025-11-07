@@ -1,13 +1,13 @@
 """
 Real-time stock data API endpoints for the dashboard.
-Provides live prices, AI predictions, and trading signals.
+Provides live prices, AI predictions, trading signals, and algorithm management.
 """
 
 import asyncio
 import logging
 from datetime import datetime
-from typing import Dict, List
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from typing import Dict, List, Optional
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from collections import defaultdict
 import json
 
@@ -21,6 +21,7 @@ trading_system = None
 latest_prices = {}
 latest_predictions = {}
 active_positions = []
+algorithms = {}  # Store user-created algorithms
 
 class ConnectionManager:
     """Manages WebSocket connections for real-time updates."""
@@ -183,6 +184,144 @@ async def get_account():
     except Exception as e:
         logger.error(f"Error getting account: {e}")
         return {'error': str(e)}
+
+@router.get("/universe")
+async def get_stock_universe(
+    search: Optional[str] = Query(None),
+    exchange: Optional[str] = Query(None),
+    limit: int = Query(100, le=1000)
+):
+    """Get all tradeable stocks with optional filtering."""
+    try:
+        from src.stock_universe import get_all_tradeable_stocks, search_stocks, filter_stocks
+        
+        stocks = await get_all_tradeable_stocks()
+        
+        # Apply search
+        if search:
+            stocks = search_stocks(search, stocks)
+        
+        # Apply filters
+        if exchange:
+            stocks = filter_stocks(stocks, exchange=exchange)
+        
+        # Limit results
+        stocks = stocks[:limit]
+        
+        return {'stocks': stocks, 'count': len(stocks)}
+    
+    except Exception as e:
+        logger.error(f"Error getting stock universe: {e}")
+        return {'stocks': [], 'error': str(e)}
+
+@router.get("/stock/{symbol}")
+async def get_stock_detail(symbol: str):
+    """Get detailed info for a specific stock."""
+    try:
+        stock_data = {
+            'symbol': symbol,
+            'name': '',
+            'price': 0.0,
+            'change': 0.0,
+            'volume': 0,
+            'market_cap': 0,
+            'pe_ratio': 0,
+            'high_52w': 0,
+            'low_52w': 0,
+        }
+        
+        # Get live price
+        if trading_system and trading_system.data_feed_manager:
+            for feed in trading_system.data_feed_manager.feeds:
+                if feed.is_running and hasattr(feed, 'buffers'):
+                    if symbol in feed.buffers:
+                        buffer = feed.buffers[symbol]
+                        if len(buffer.data) > 0:
+                            latest = buffer.data[-1]
+                            prev = buffer.data[-2] if len(buffer.data) > 1 else latest
+                            stock_data['price'] = round(latest.price, 2)
+                            stock_data['change'] = round(((latest.price - prev.price) / prev.price) * 100, 2)
+                            stock_data['volume'] = int(latest.volume)
+        
+        return stock_data
+    
+    except Exception as e:
+        logger.error(f"Error getting stock detail: {e}")
+        return {'error': str(e)}
+
+@router.get("/algorithms")
+async def get_algorithms():
+    """Get all user-created algorithms."""
+    try:
+        algo_list = []
+        for algo_id, algo in algorithms.items():
+            algo_list.append({
+                'id': algo_id,
+                'name': algo['name'],
+                'symbol': algo['symbol'],
+                'status': algo['status'],
+                'total_trades': algo.get('total_trades', 0),
+                'win_rate': algo.get('win_rate', 0),
+                'net_pnl': algo.get('net_pnl', 0),
+                'efficiency': algo.get('efficiency', 0),
+                'created_at': algo.get('created_at'),
+            })
+        
+        return {'algorithms': algo_list, 'count': len(algo_list)}
+    
+    except Exception as e:
+        logger.error(f"Error getting algorithms: {e}")
+        return {'algorithms': [], 'error': str(e)}
+
+@router.post("/algorithms")
+async def create_algorithm(algo_config: dict):
+    """Create a new trading algorithm."""
+    try:
+        algo_id = f"algo_{len(algorithms) + 1}"
+        algorithms[algo_id] = {
+            'id': algo_id,
+            'name': algo_config.get('name', f'Algorithm {len(algorithms) + 1}'),
+            'symbol': algo_config.get('symbol'),
+            'status': 'training',
+            'config': algo_config,
+            'total_trades': 0,
+            'win_rate': 0,
+            'net_pnl': 0,
+            'efficiency': 0,
+            'created_at': datetime.now().isoformat(),
+        }
+        
+        return {'success': True, 'algorithm': algorithms[algo_id]}
+    
+    except Exception as e:
+        logger.error(f"Error creating algorithm: {e}")
+        return {'success': False, 'error': str(e)}
+
+@router.get("/algorithms/{algo_id}")
+async def get_algorithm(algo_id: str):
+    """Get specific algorithm details."""
+    try:
+        if algo_id not in algorithms:
+            return {'error': 'Algorithm not found'}
+        
+        return {'algorithm': algorithms[algo_id]}
+    
+    except Exception as e:
+        logger.error(f"Error getting algorithm: {e}")
+        return {'error': str(e)}
+
+@router.delete("/algorithms/{algo_id}")
+async def delete_algorithm(algo_id: str):
+    """Delete an algorithm."""
+    try:
+        if algo_id in algorithms:
+            del algorithms[algo_id]
+            return {'success': True}
+        return {'error': 'Algorithm not found'}
+    
+    except Exception as e:
+        logger.error(f"Error deleting algorithm: {e}")
+        return {'success': False, 'error': str(e)}
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

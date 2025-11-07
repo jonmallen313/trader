@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Trader Pro - Trading Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-primary: #0a0e27;
+            --bg-secondary: #151b3d;
+            --bg-card: #1a2147;
+            --sidebar-bg: #0d1129;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --text-primary: #ffffff;
+            --text-secondary: #94a3b8;
+            --border-color: #2d3a5f;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        
+        .logo {
+            padding: 24px 20px;
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .nav-menu {
+            flex: 1;
+            padding: 20px 0;
+            overflow-y: auto;
+        }
+        
+        .nav-item {
+            padding: 14px 20px;
+            margin: 4px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .nav-item:hover {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+        
+        .nav-item.active {
+            background: var(--accent-blue);
+            color: white;
+        }
+        
+        .nav-icon {
+            font-size: 20px;
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .topbar {
+            height: 70px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+            flex-shrink: 0;
+        }
+        
+        .search-bar {
+            flex: 1;
+            max-width: 500px;
+        }
+        
+        .search-input {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 16px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+        
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        
+        .account-info {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .balance-display {
+            text-align: right;
+        }
+        
+        .balance-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .balance-value {
+            font-size: 18px;
+            font-weight: 700;
+        }
+        
+        .content-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+        }
+        
+        .page {
+            display: none;
+        }
+        
+        .page.active {
+            display: block;
+        }
+        
+        .page-header {
+            margin-bottom: 30px;
+        }
+        
+        .page-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        
+        .page-subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        /* Stock Grid */
+        .stock-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+        
+        .stock-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .stock-card:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
+        }
+        
+        .stock-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+        
+        .stock-symbol {
+            font-size: 18px;
+            font-weight: 700;
+        }
+        
+        .stock-name {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        .stock-price {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        
+        .stock-change {
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .positive { color: var(--accent-green); }
+        .negative { color: var(--accent-red); }
+        
+        .ai-signal {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        
+        .signal-buy {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+        
+        .signal-sell {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+        }
+        
+        .signal-hold {
+            background: rgba(148, 163, 184, 0.2);
+            color: var(--text-secondary);
+        }
+        
+        /* Algorithm Cards */
+        .algo-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        
+        .algo-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .algo-name {
+            font-size: 18px;
+            font-weight: 700;
+        }
+        
+        .algo-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .status-active {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+        
+        .status-training {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+        
+        .status-paused {
+            background: rgba(148, 163, 184, 0.2);
+            color: var(--text-secondary);
+        }
+        
+        .algo-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: var(--accent-blue);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+        
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+        
+        .btn-secondary:hover {
+            border-color: var(--accent-blue);
+        }
+        
+        /* Chart Container */
+        .chart-container {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            height: 500px;
+        }
+        
+        .tradingview-widget-container {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Info Section */
+        .info-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+        
+        .spinner {
+            border: 3px solid var(--border-color);
+            border-top: 3px solid var(--accent-blue);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="logo">🤖 AI TRADER PRO</div>
+        <div class="nav-menu">
+            <div class="nav-item active" onclick="showPage('dashboard')">
+                <span class="nav-icon">📊</span>
+                <span>Dashboard</span>
+            </div>
+            <div class="nav-item" onclick="showPage('browse')">
+                <span class="nav-icon">🔍</span>
+                <span>Browse Stocks</span>
+            </div>
+            <div class="nav-item" onclick="showPage('lineup')">
+                <span class="nav-icon">⚡</span>
+                <span>Algorithm Lineup</span>
+            </div>
+            <div class="nav-item" onclick="showPage('builder')">
+                <span class="nav-icon">🛠️</span>
+                <span>Algorithm Builder</span>
+            </div>
+            <div class="nav-item" onclick="showPage('positions')">
+                <span class="nav-icon">💼</span>
+                <span>Active Positions</span>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Topbar -->
+        <div class="topbar">
+            <div class="search-bar">
+                <input type="text" class="search-input" placeholder="Search stocks..." id="globalSearch" onkeyup="searchStocks(this.value)">
+            </div>
+            <div class="account-info">
+                <div class="balance-display">
+                    <div class="balance-label">Account Balance</div>
+                    <div class="balance-value" id="topbarBalance">$100.00</div>
+                </div>
+                <div class="balance-display">
+                    <div class="balance-label">P&L</div>
+                    <div class="balance-value positive" id="topbarPnl">$0.00</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Content Area -->
+        <div class="content-area">
+            <!-- Dashboard Page -->
+            <div id="dashboard" class="page active">
+                <div class="page-header">
+                    <h1 class="page-title">Dashboard</h1>
+                    <p class="page-subtitle">Real-time market overview and AI predictions</p>
+                </div>
+                
+                <div class="stock-grid" id="dashboardStocks">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading market data...
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Browse Stocks Page -->
+            <div id="browse" class="page">
+                <div class="page-header">
+                    <h1 class="page-title">Browse All Stocks</h1>
+                    <p class="page-subtitle">Explore all tradeable stocks with AI insights</p>
+                </div>
+                
+                <div class="stock-grid" id="browseStocks">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading stock universe...
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Stock Detail Page -->
+            <div id="stock-detail" class="page">
+                <div class="page-header">
+                    <h1 class="page-title" id="stockDetailSymbol">Stock</h1>
+                    <p class="page-subtitle" id="stockDetailName">Company Name</p>
+                </div>
+                
+                <div class="chart-container">
+                    <!-- TradingView Widget -->
+                    <div id="tradingview_widget"></div>
+                </div>
+                
+                <div class="info-section">
+                    <h3 class="section-title">🧠 AI Insights</h3>
+                    <div id="aiInsights">Loading...</div>
+                </div>
+                
+                <div class="info-section">
+                    <h3 class="section-title">📰 Recent News</h3>
+                    <div id="stockNews">Loading...</div>
+                </div>
+                
+                <button class="btn btn-primary" onclick="showAlgorithmBuilder()">Create Algorithm for this Stock</button>
+            </div>
+            
+            <!-- Algorithm Lineup Page -->
+            <div id="lineup" class="page">
+                <div class="page-header">
+                    <h1 class="page-title">Algorithm Lineup</h1>
+                    <p class="page-subtitle">Your active trading algorithms</p>
+                </div>
+                
+                <div id="algorithmList">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading algorithms...
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Algorithm Builder Page -->
+            <div id="builder" class="page">
+                <div class="page-header">
+                    <h1 class="page-title">Algorithm Builder</h1>
+                    <p class="page-subtitle">Create and train custom trading algorithms</p>
+                </div>
+                
+                <div class="info-section">
+                    <h3 class="section-title">Configure Algorithm</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        Build a custom microtrend trading algorithm for any stock
+                    </p>
+                    
+                    <div style="display: grid; gap: 16px; max-width: 600px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Algorithm Name</label>
+                            <input type="text" id="algoName" class="search-input" placeholder="e.g., AAPL Momentum Trader">
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Stock Symbol</label>
+                            <input type="text" id="algoSymbol" class="search-input" placeholder="e.g., AAPL">
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Strategy Type</label>
+                            <select id="algoStrategy" class="search-input">
+                                <option>Momentum</option>
+                                <option>Mean Reversion</option>
+                                <option>Breakout</option>
+                                <option>Scalping</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">Risk Level</label>
+                            <input type="range" id="algoRisk" min="1" max="10" value="5" style="width: 100%;">
+                        </div>
+                        
+                        <button class="btn btn-primary" onclick="createAlgorithm()">Create & Train Algorithm</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Positions Page -->
+            <div id="positions" class="page">
+                <div class="page-header">
+                    <h1 class="page-title">Active Positions</h1>
+                    <p class="page-subtitle">Your current open trades</p>
+                </div>
+                
+                <div id="positionsList">
+                    <div class="info-section">
+                        <p style="text-align: center; color: var(--text-secondary);">No active positions</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://s3.tradingview.com/tv.js"></script>
+    <script>
+        let currentPage = 'dashboard';
+        let currentSymbol = null;
+        let allStocks = [];
+        
+        function showPage(pageName) {
+            // Update nav items
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.nav-item').classList.add('active');
+            
+            // Update pages
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            document.getElementById(pageName).classList.add('active');
+            
+            currentPage = pageName;
+            
+            // Load page data
+            if (pageName === 'browse') {
+                loadAllStocks();
+            } else if (pageName === 'lineup') {
+                loadAlgorithms();
+            } else if (pageName === 'positions') {
+                loadPositions();
+            } else if (pageName === 'dashboard') {
+                loadDashboard();
+            }
+        }
+        
+        function showStockDetail(symbol) {
+            currentSymbol = symbol;
+            document.getElementById('stockDetailSymbol').textContent = symbol;
+            showPage('stock-detail');
+            loadStockDetail(symbol);
+            loadTradingViewChart(symbol);
+        }
+        
+        function showAlgorithmBuilder() {
+            if (currentSymbol) {
+                document.getElementById('algoSymbol').value = currentSymbol;
+            }
+            showPage('builder');
+        }
+        
+        async function loadDashboard() {
+            try {
+                const response = await fetch('/api/stocks');
+                const data = await response.json();
+                
+                const grid = document.getElementById('dashboardStocks');
+                if (data.stocks && data.stocks.length > 0) {
+                    grid.innerHTML = data.stocks.map(stock => `
+                        <div class="stock-card" onclick="showStockDetail('${stock.symbol}')">
+                            <div class="stock-header">
+                                <div>
+                                    <div class="stock-symbol">${stock.symbol}</div>
+                                </div>
+                                <div class="ai-signal signal-hold">HOLD</div>
+                            </div>
+                            <div class="stock-price">$${stock.price.toFixed(2)}</div>
+                            <div class="stock-change ${stock.change >= 0 ? 'positive' : 'negative'}">
+                                ${stock.change >= 0 ? '+' : ''}${stock.change.toFixed(2)}%
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+            }
+        }
+        
+        async function loadAllStocks() {
+            try {
+                const response = await fetch('/api/universe?limit=100');
+                const data = await response.json();
+                allStocks = data.stocks || [];
+                
+                displayStocks(allStocks);
+            } catch (error) {
+                console.error('Error loading stocks:', error);
+            }
+        }
+        
+        function displayStocks(stocks) {
+            const grid = document.getElementById('browseStocks');
+            if (stocks.length > 0) {
+                grid.innerHTML = stocks.map(stock => `
+                    <div class="stock-card" onclick="showStockDetail('${stock.symbol}')">
+                        <div class="stock-header">
+                            <div>
+                                <div class="stock-symbol">${stock.symbol}</div>
+                                <div class="stock-name">${stock.name}</div>
+                            </div>
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
+                            ${stock.exchange}
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                grid.innerHTML = '<div class="loading">No stocks found</div>';
+            }
+        }
+        
+        function searchStocks(query) {
+            if (!query || currentPage !== 'browse') return;
+            
+            const filtered = allStocks.filter(s => 
+                s.symbol.toLowerCase().includes(query.toLowerCase()) ||
+                s.name.toLowerCase().includes(query.toLowerCase())
+            );
+            
+            displayStocks(filtered);
+        }
+        
+        async function loadStockDetail(symbol) {
+            try {
+                const response = await fetch(`/api/stock/${symbol}`);
+                const data = await response.json();
+                
+                document.getElementById('stockDetailName').textContent = data.name || symbol;
+                document.getElementById('aiInsights').innerHTML = `
+                    <p style="color: var(--text-secondary);">
+                        AI analysis for ${symbol} will appear here with buy/sell signals, 
+                        confidence levels, and microtrend predictions.
+                    </p>
+                `;
+                document.getElementById('stockNews').innerHTML = `
+                    <p style="color: var(--text-secondary);">
+                        Recent news and events for ${symbol} will be displayed here.
+                    </p>
+                `;
+            } catch (error) {
+                console.error('Error loading stock detail:', error);
+            }
+        }
+        
+        function loadTradingViewChart(symbol) {
+            new TradingView.widget({
+                "width": "100%",
+                "height": "100%",
+                "symbol": symbol,
+                "interval": "1",
+                "timezone": "America/New_York",
+                "theme": "dark",
+                "style": "1",
+                "locale": "en",
+                "toolbar_bg": "#0a0e27",
+                "enable_publishing": false,
+                "hide_side_toolbar": false,
+                "allow_symbol_change": true,
+                "container_id": "tradingview_widget"
+            });
+        }
+        
+        async function loadAlgorithms() {
+            try {
+                const response = await fetch('/api/algorithms');
+                const data = await response.json();
+                
+                const list = document.getElementById('algorithmList');
+                if (data.algorithms && data.algorithms.length > 0) {
+                    list.innerHTML = data.algorithms.map(algo => `
+                        <div class="algo-card">
+                            <div class="algo-header">
+                                <div>
+                                    <div class="algo-name">${algo.name}</div>
+                                    <div style="font-size: 14px; color: var(--text-secondary); margin-top: 4px;">
+                                        ${algo.symbol}
+                                    </div>
+                                </div>
+                                <div class="algo-status status-${algo.status}">${algo.status.toUpperCase()}</div>
+                            </div>
+                            <div class="algo-stats">
+                                <div class="stat-item">
+                                    <div class="stat-label">Trades</div>
+                                    <div class="stat-value">${algo.total_trades}</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">Win Rate</div>
+                                    <div class="stat-value">${algo.win_rate}%</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">Net P&L</div>
+                                    <div class="stat-value ${algo.net_pnl >= 0 ? 'positive' : 'negative'}">
+                                        $${algo.net_pnl.toFixed(2)}
+                                    </div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-label">Efficiency</div>
+                                    <div class="stat-value">${algo.efficiency}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = `
+                        <div class="info-section">
+                            <p style="text-align: center; color: var(--text-secondary);">
+                                No algorithms created yet. Visit the Algorithm Builder to create one.
+                            </p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading algorithms:', error);
+            }
+        }
+        
+        async function createAlgorithm() {
+            const config = {
+                name: document.getElementById('algoName').value,
+                symbol: document.getElementById('algoSymbol').value.toUpperCase(),
+                strategy: document.getElementById('algoStrategy').value,
+                risk: document.getElementById('algoRisk').value
+            };
+            
+            if (!config.name || !config.symbol) {
+                alert('Please enter algorithm name and symbol');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/algorithms', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    alert('Algorithm created successfully!');
+                    showPage('lineup');
+                }
+            } catch (error) {
+                console.error('Error creating algorithm:', error);
+            }
+        }
+        
+        async function loadPositions() {
+            try {
+                const response = await fetch('/api/positions');
+                const data = await response.json();
+                
+                const list = document.getElementById('positionsList');
+                if (data.positions && data.positions.length > 0) {
+                    list.innerHTML = data.positions.map(pos => `
+                        <div class="algo-card">
+                            <div class="algo-header">
+                                <div>
+                                    <div class="algo-name">${pos.symbol}</div>
+                                    <div style="font-size: 14px; color: var(--text-secondary); margin-top: 4px;">
+                                        ${pos.quantity} shares @ $${pos.entry_price.toFixed(2)}
+                                    </div>
+                                </div>
+                                <div class="stat-value ${pos.unrealized_pnl >= 0 ? 'positive' : 'negative'}">
+                                    ${pos.unrealized_pnl >= 0 ? '+' : ''}$${pos.unrealized_pnl.toFixed(2)}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = `
+                        <div class="info-section">
+                            <p style="text-align: center; color: var(--text-secondary);">
+                                No active positions
+                            </p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading positions:', error);
+            }
+        }
+        
+        // Update topbar balance
+        async function updateTopbar() {
+            try {
+                const response = await fetch('/api/account');
+                const data = await response.json();
+                
+                document.getElementById('topbarBalance').textContent = `$${data.equity.toFixed(2)}`;
+                document.getElementById('topbarPnl').textContent = `$${data.pnl.toFixed(2)}`;
+                document.getElementById('topbarPnl').className = `balance-value ${data.pnl >= 0 ? 'positive' : 'negative'}`;
+            } catch (error) {
+                console.error('Error updating topbar:', error);
+            }
+        }
+        
+        // Initial load
+        loadDashboard();
+        updateTopbar();
+        setInterval(updateTopbar, 5000);
+        setInterval(() => {
+            if (currentPage === 'dashboard') loadDashboard();
+        }, 5000);
+    </script>
+</body>
+</html>
