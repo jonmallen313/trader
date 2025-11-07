@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Trading System - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        
+        .header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+            margin-bottom: 10px;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-running {
+            background: #4ade80;
+        }
+        
+        .status-starting {
+            background: #fbbf24;
+        }
+        
+        .status-error {
+            background: #ef4444;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .info-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+        
+        .info-section h2 {
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+        
+        .info-item {
+            padding: 15px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .info-item:last-child {
+            border-bottom: none;
+        }
+        
+        .info-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            opacity: 0.9;
+            word-break: break-all;
+        }
+        
+        .refresh-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin: 10px;
+        }
+        
+        .refresh-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+        
+        .auto-refresh {
+            text-align: center;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI Trading System</h1>
+            <p>Automated Trading with Machine Learning</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Status</div>
+                <div class="stat-value">
+                    <span class="status-indicator" id="status-indicator"></span>
+                    <span id="system-status">Loading...</span>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-label">Capital</div>
+                <div class="stat-value" id="capital">$100.00</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-label">Target</div>
+                <div class="stat-value">$2,000</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-label">Uptime</div>
+                <div class="stat-value" id="uptime">0s</div>
+            </div>
+        </div>
+        
+        <div class="info-section">
+            <h2>📊 System Information</h2>
+            <div class="info-item">
+                <div class="info-label">Trading Mode</div>
+                <div class="info-value">Paper Trading (Alpaca)</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Symbols Monitored</div>
+                <div class="info-value">SPY, QQQ, AAPL, TSLA, NVDA, AMD, MSFT</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">AI Models</div>
+                <div class="info-value">XGBoost + Online Learning Ensemble</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Data Source</div>
+                <div class="info-value">Alpaca Real-time Market Data</div>
+            </div>
+        </div>
+        
+        <div class="info-section">
+            <h2>🔗 API Endpoints</h2>
+            <div class="info-item">
+                <div class="info-label">Health Check</div>
+                <div class="info-value"><a href="/health" style="color: #60a5fa;">/health</a></div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">System Status</div>
+                <div class="info-value"><a href="/status" style="color: #60a5fa;">/status</a></div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">TradingView Webhook</div>
+                <div class="info-value" id="webhook-url">Loading...</div>
+            </div>
+        </div>
+        
+        <div class="auto-refresh">
+            <button class="refresh-btn" onclick="loadStatus()">🔄 Refresh Status</button>
+            <p style="opacity: 0.7; margin-top: 10px;">Auto-refreshing every 5 seconds</p>
+        </div>
+    </div>
+    
+    <script>
+        async function loadStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                
+                // Update status
+                const statusEl = document.getElementById('system-status');
+                const indicatorEl = document.getElementById('status-indicator');
+                
+                if (data.trading_system === 'running') {
+                    statusEl.textContent = 'Running';
+                    indicatorEl.className = 'status-indicator status-running';
+                } else if (data.trading_system === 'starting' || data.trading_system === 'loading') {
+                    statusEl.textContent = 'Starting...';
+                    indicatorEl.className = 'status-indicator status-starting';
+                } else {
+                    statusEl.textContent = data.trading_system;
+                    indicatorEl.className = 'status-indicator status-error';
+                }
+                
+                // Update uptime
+                if (data.uptime) {
+                    const uptime = Math.floor(data.uptime);
+                    const minutes = Math.floor(uptime / 60);
+                    const seconds = uptime % 60;
+                    document.getElementById('uptime').textContent = 
+                        minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+                }
+                
+                // Update webhook URL
+                const webhookUrl = window.location.origin + '/webhook/tradingview';
+                document.getElementById('webhook-url').textContent = webhookUrl;
+                
+            } catch (error) {
+                console.error('Failed to load status:', error);
+            }
+        }
+        
+        // Load status on page load
+        loadStatus();
+        
+        // Auto-refresh every 5 seconds
+        setInterval(loadStatus, 5000);
+    </script>
+</body>
+</html>

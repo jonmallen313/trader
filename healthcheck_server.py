@@ -4,8 +4,10 @@ Health check server that starts immediately, then boots trading system in backgr
 import os
 import asyncio
 import logging
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 import uvicorn
 from datetime import datetime
 
@@ -56,16 +58,32 @@ async def health_check():
         "trading_system": system_status["trading_system"]
     }
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    """Root endpoint."""
-    return {
-        "status": "online",
-        "name": "AI Trading System",
-        "health_endpoint": "/health",
-        "start_endpoint": "/start",
-        "system_status": system_status
-    }
+    """Root endpoint - serves dashboard."""
+    try:
+        dashboard_path = Path(__file__).parent / "templates" / "dashboard.html"
+        if dashboard_path.exists():
+            with open(dashboard_path, 'r') as f:
+                return HTMLResponse(content=f.read())
+        else:
+            # Fallback to JSON if HTML not found
+            return {
+                "status": "online",
+                "name": "AI Trading System",
+                "health_endpoint": "/health",
+                "start_endpoint": "/start",
+                "system_status": system_status
+            }
+    except Exception as e:
+        logger.error(f"Error serving dashboard: {e}")
+        return {
+            "status": "online",
+            "name": "AI Trading System",
+            "health_endpoint": "/health",
+            "start_endpoint": "/start",
+            "system_status": system_status
+        }
 
 @app.get("/status")
 async def get_status():
