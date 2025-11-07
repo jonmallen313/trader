@@ -109,6 +109,64 @@ class AITradingSystem:
         self.logger.info("All components initialized successfully")
     
     async def setup_brokers(self):
+        """Setup broker connections with error handling."""
+        self.broker_manager = BrokerManager()
+        
+        try:
+            if self.mode == "live":
+                # Add Binance if keys available
+                api_key = os.getenv('BINANCE_API_KEY')
+                secret_key = os.getenv('BINANCE_SECRET')
+                
+                if api_key and secret_key:
+                    binance = BinanceBroker(api_key, secret_key, paper_mode=False)
+                    self.broker_manager.add_broker(binance, is_primary=True)
+                    self.logger.info("Added Binance live broker")
+                
+                # Add Alpaca if keys available
+                alpaca_key = os.getenv('ALPACA_API_KEY')
+                alpaca_secret = os.getenv('ALPACA_SECRET')
+                
+                if alpaca_key and alpaca_secret:
+                    alpaca = AlpacaBroker(alpaca_key, alpaca_secret, paper_mode=False)
+                    self.broker_manager.add_broker(alpaca)
+                    self.logger.info("Added Alpaca live broker")
+                    
+            elif self.mode == "paper":
+                # Try to add paper trading brokers, but fall back to mock if they fail
+                api_key = os.getenv('BINANCE_API_KEY', 'test_key')
+                secret_key = os.getenv('BINANCE_SECRET', 'test_secret')
+                
+                try:
+                    binance_paper = BinanceBroker(api_key, secret_key, paper_mode=True)
+                    self.broker_manager.add_broker(binance_paper, is_primary=True)
+                    self.logger.info("Added Binance paper broker")
+                except Exception as e:
+                    self.logger.warning(f"Binance not available: {e}. Using mock broker.")
+                
+            else:  # backtest or testing
+                mock_broker = MockBroker(INITIAL_CAPITAL)
+                self.broker_manager.add_broker(mock_broker, is_primary=True)
+                self.logger.info("Added mock broker for testing")
+            
+            # Connect all brokers (with error handling)
+            try:
+                await self.broker_manager.connect_all()
+            except Exception as e:
+                self.logger.warning(f"Broker connection failed: {e}")
+                # If no brokers connected, ensure we have at least a mock broker
+                if not any(b.is_connected for b in self.broker_manager.brokers):
+                    self.logger.info("No brokers connected - adding mock broker fallback")
+                    mock_broker = MockBroker(INITIAL_CAPITAL)
+                    self.broker_manager.add_broker(mock_broker, is_primary=True)
+                    await mock_broker.connect()
+                    
+        except Exception as e:
+            self.logger.error(f"Error in setup_brokers: {e}. Using mock broker as fallback.")
+            # Emergency fallback
+            mock_broker = MockBroker(INITIAL_CAPITAL)
+            self.broker_manager.add_broker(mock_broker, is_primary=True)
+            await mock_broker.connect()
         """Setup broker connections."""
         self.broker_manager = BrokerManager()
         

@@ -18,7 +18,11 @@ try:
     from sklearn.preprocessing import StandardScaler
     from sklearn.metrics import accuracy_score, classification_report
     import xgboost as xgb
-    from river import ensemble, tree, preprocessing, metrics
+    from river import tree, preprocessing, metrics
+    try:
+        from river import forest  # ARFClassifier for online learning
+    except ImportError:
+        forest = None  # Fallback to tree-based models
 except ImportError as e:
     print(f"ML dependencies not installed: {e}")
 
@@ -309,16 +313,23 @@ class OnlineLearningModel(MicroTrendModel):
     def __init__(self):
         super().__init__("OnlineLearning")
         
-        # Create online learning pipeline
-        self.model = ensemble.AdaptiveRandomForestClassifier(
-            n_models=10,
-            max_features="sqrt",
-            lambda_value=6,
-            grace_period=50,
-            drift_detector=None,  # Can add drift detection later
-            warning_detector=None,
-            random_state=42
-        )
+        # Create online learning pipeline using HoeffdingTreeClassifier
+        # River changed their API - AdaptiveRandomForest is now in forest module
+        try:
+            from river import forest
+            self.model = forest.ARFClassifier(
+                n_models=10,
+                max_features="sqrt",
+                lambda_value=6,
+                grace_period=50,
+                seed=42
+            )
+        except (ImportError, AttributeError):
+            # Fallback to HoeffdingTree if ARF not available
+            self.model = tree.HoeffdingTreeClassifier(
+                grace_period=50,
+                split_confidence=0.01
+            )
         
         self.preprocessor = preprocessing.StandardScaler()
         self.metric = metrics.Accuracy()
