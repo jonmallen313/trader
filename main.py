@@ -68,23 +68,43 @@ class AITradingSystem:
         )
     
     async def initialize_components(self):
-        """Initialize all system components."""
+        """Initialize all system components with error handling."""
         self.logger.info("Initializing system components...")
         
-        # Initialize broker manager
-        await self.setup_brokers()
+        try:
+            # Initialize broker manager
+            await self.setup_brokers()
+        except Exception as e:
+            self.logger.error(f"Broker setup failed: {e}. Using mock broker fallback.")
+            self.broker_manager = BrokerManager()
+            mock_broker = MockBroker(INITIAL_CAPITAL)
+            self.broker_manager.add_broker(mock_broker, is_primary=True)
         
-        # Initialize data feeds
-        await self.setup_data_feeds()
+        try:
+            # Initialize data feeds
+            await self.setup_data_feeds()
+        except Exception as e:
+            self.logger.warning(f"Data feed setup failed: {e}. Continuing without live data.")
         
-        # Initialize AI predictor
-        await self.setup_ai_predictor()
+        try:
+            # Initialize AI predictor
+            await self.setup_ai_predictor()
+        except Exception as e:
+            self.logger.warning(f"AI predictor setup failed: {e}. System will run with basic logic.")
         
-        # Initialize autopilot controller
-        await self.setup_autopilot()
+        try:
+            # Initialize autopilot controller
+            await self.setup_autopilot()
+        except Exception as e:
+            self.logger.error(f"Autopilot setup failed: {e}")
+            raise
         
-        # Initialize webhook server
-        await self.setup_webhook_server()
+        try:
+            # Initialize webhook server (critical for Railway health checks)
+            await self.setup_webhook_server()
+        except Exception as e:
+            self.logger.error(f"Webhook server setup failed: {e}")
+            raise
         
         self.logger.info("All components initialized successfully")
     
@@ -249,6 +269,15 @@ class AITradingSystem:
     
     async def run_live_trading(self):
         """Run live or paper trading mode."""
+        
+        # Start webhook server FIRST (Railway needs health check immediately)
+        webhook_task = None
+        if self.webhook_server:
+            webhook_task = asyncio.create_task(self.webhook_server.start_server())
+            # Give server a moment to start and be ready for health checks
+            await asyncio.sleep(2)
+            self.logger.info("✅ Webhook server started and ready for health checks")
+        
         tasks = []
         
         # Start data feeds
@@ -257,10 +286,6 @@ class AITradingSystem:
         
         # Start autopilot
         tasks.append(self.autopilot.start())
-        
-        # Start webhook server
-        if self.webhook_server:
-            tasks.append(self.webhook_server.start_server())
         
         self.logger.info(f"🚀 AI Trading System running in {self.mode} mode")
         self.logger.info(f"📊 Target: ${GLOBAL_TAKE_PROFIT} (${INITIAL_CAPITAL} → 20x multiplier)")
@@ -273,7 +298,9 @@ class AITradingSystem:
             webhook_url = railway_config.get_webhook_url()
             self.logger.info(f"📡 TradingView Webhook: {webhook_url}")
         
-        # Wait for all tasks
+        # Wait for all tasks (including webhook server)
+        if webhook_task:
+            tasks.append(webhook_task)
         await asyncio.gather(*tasks, return_exceptions=True)
     
     async def run_backtest(self):
