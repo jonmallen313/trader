@@ -202,28 +202,24 @@ class AITradingSystem:
         """Setup market data feeds."""
         self.data_feed_manager = DataFeedManager()
         
-        # Define symbols to track
-        symbols = self.config.get('symbols', ['BTC/USDT', 'ETH/USDT', 'ADA/USDT'])
-        
         if self.mode in ["live", "paper"]:
-            # Add live data feeds
-            api_key = os.getenv('BINANCE_API_KEY')
-            secret_key = os.getenv('BINANCE_SECRET')
-            
-            if True:  # Binance websocket doesn't require API keys for market data
-                binance_feed = BinanceWebSocketFeed(symbols)
-                self.data_feed_manager.add_feed(binance_feed)
-                self.logger.info(f"Added Binance data feed for {len(symbols)} symbols")
-            
-            # Add Alpaca feed if available
+            # Priority 1: Use Alpaca data feeds (not geo-restricted, works on Railway)
             alpaca_key = os.getenv('ALPACA_API_KEY')
-            alpaca_secret = os.getenv('ALPACA_SECRET')
+            alpaca_secret = os.getenv('ALPACA_API_SECRET')
             
             if alpaca_key and alpaca_secret:
-                stock_symbols = ['AAPL', 'TSLA', 'SPY']  # Example stock symbols
+                # Use popular stocks for trading
+                stock_symbols = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT']
                 alpaca_feed = AlpacaWebSocketFeed(stock_symbols, alpaca_key, alpaca_secret)
                 self.data_feed_manager.add_feed(alpaca_feed)
-                self.logger.info(f"Added Alpaca data feed for {len(stock_symbols)} symbols")
+                self.logger.info(f"✅ Added Alpaca data feed for {len(stock_symbols)} symbols")
+            else:
+                self.logger.warning("⚠️  No Alpaca API keys - data feeds disabled")
+                self.logger.info("🔑 Add ALPACA_API_KEY and ALPACA_API_SECRET for live data")
+            
+            # Binance is geo-restricted on Railway - skip it
+            # binance_feed = BinanceWebSocketFeed(symbols)
+            # self.data_feed_manager.add_feed(binance_feed)
     
     async def setup_ai_predictor(self):
         """Setup AI prediction models."""
