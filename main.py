@@ -197,44 +197,6 @@ class AITradingSystem:
             mock_broker = MockBroker(INITIAL_CAPITAL)
             self.broker_manager.add_broker(mock_broker, is_primary=True)
             await mock_broker.connect()
-        """Setup broker connections."""
-        self.broker_manager = BrokerManager()
-        
-        if self.mode == "live":
-            # Add live brokers
-            api_key = os.getenv('BINANCE_API_KEY')
-            secret_key = os.getenv('BINANCE_SECRET')
-            
-            if api_key and secret_key:
-                binance = BinanceBroker(api_key, secret_key, paper_mode=False)
-                self.broker_manager.add_broker(binance, is_primary=True)
-                self.logger.info("Added Binance live broker")
-            
-            # Add Alpaca if keys available
-            alpaca_key = os.getenv('ALPACA_API_KEY')
-            alpaca_secret = os.getenv('ALPACA_SECRET')
-            
-            if alpaca_key and alpaca_secret:
-                alpaca = AlpacaBroker(alpaca_key, alpaca_secret, paper_mode=False)
-                self.broker_manager.add_broker(alpaca)
-                self.logger.info("Added Alpaca live broker")
-                
-        elif self.mode == "paper":
-            # Add paper trading brokers
-            api_key = os.getenv('BINANCE_API_KEY', 'test_key')
-            secret_key = os.getenv('BINANCE_SECRET', 'test_secret')
-            
-            binance_paper = BinanceBroker(api_key, secret_key, paper_mode=True)
-            self.broker_manager.add_broker(binance_paper, is_primary=True)
-            self.logger.info("Added Binance paper broker")
-            
-        else:  # backtest or testing
-            mock_broker = MockBroker(INITIAL_CAPITAL)
-            self.broker_manager.add_broker(mock_broker, is_primary=True)
-            self.logger.info("Added mock broker for testing")
-        
-        # Connect all brokers
-        await self.broker_manager.connect_all()
     
     async def setup_data_feeds(self):
         """Setup market data feeds."""
