@@ -329,6 +329,7 @@ class AlpacaPollingFeed(WebSocketDataFeed):
                 bars = self.data_client.get_stock_latest_bar(request)
                 
                 # Process each symbol
+                processed = 0
                 for symbol in self.symbols:
                     if symbol in bars:
                         bar = bars[symbol]
@@ -347,13 +348,16 @@ class AlpacaPollingFeed(WebSocketDataFeed):
                         if symbol in self.buffers:
                             self.buffers[symbol].add(data_point)
                             self._notify_callbacks(symbol, data_point)
+                            processed += 1
                 
                 # Log success
-                if len(bars) > 0:
-                    self.logger.debug(f"📊 Polled {len(bars)} symbols from Alpaca")
+                if processed > 0:
+                    self.logger.info(f"📊 AI Feed: Polled {processed}/{len(self.symbols)} symbols, {sum(len(b.data) for b in self.buffers.values())} total data points")
+                else:
+                    self.logger.warning(f"⚠️ No data received for any symbols (market closed?)")
                 
             except Exception as e:
-                self.logger.error(f"Polling error: {e}")
+                self.logger.error(f"❌ Polling error: {e}", exc_info=True)
             
             # Wait before next poll
             await asyncio.sleep(self.poll_interval)
