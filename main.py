@@ -67,9 +67,58 @@ class AITradingSystem:
             ]
         )
     
+    async def cancel_stuck_orders(self):
+        """Cancel any stuck Alpaca orders from previous runs."""
+        try:
+            import requests
+            
+            api_key = os.getenv('ALPACA_API_KEY')
+            api_secret = os.getenv('ALPACA_API_SECRET')
+            
+            if not api_key or not api_secret:
+                self.logger.debug("No Alpaca credentials found, skipping order cleanup")
+                return
+            
+            ALPACA_BASE = "https://paper-api.alpaca.markets"
+            headers = {
+                "APCA-API-KEY-ID": api_key,
+                "APCA-API-SECRET-KEY": api_secret
+            }
+            
+            # Get all open orders
+            response = requests.get(f"{ALPACA_BASE}/v2/orders", headers=headers, timeout=5)
+            
+            if response.status_code == 200:
+                orders = response.json()
+                if orders:
+                    self.logger.info(f"🧹 Found {len(orders)} open orders, cancelling...")
+                    for order in orders:
+                        try:
+                            cancel_response = requests.delete(
+                                f"{ALPACA_BASE}/v2/orders/{order['id']}",
+                                headers=headers,
+                                timeout=5
+                            )
+                            if cancel_response.status_code == 204:
+                                self.logger.info(f"✅ Cancelled order: {order['symbol']} {order['side']}")
+                            else:
+                                self.logger.warning(f"⚠️ Could not cancel {order['id']}: {cancel_response.status_code}")
+                        except Exception as e:
+                            self.logger.warning(f"Error cancelling order {order['id']}: {e}")
+                else:
+                    self.logger.info("✅ No stuck orders found")
+            else:
+                self.logger.warning(f"Could not fetch orders: {response.status_code}")
+                
+        except Exception as e:
+            self.logger.warning(f"Order cleanup failed (non-critical): {e}")
+    
     async def initialize_components(self):
         """Initialize all system components with error handling."""
         self.logger.info("Initializing system components...")
+        
+        # Cancel any stuck orders from previous runs
+        await self.cancel_stuck_orders()
         
         try:
             # Initialize broker manager
