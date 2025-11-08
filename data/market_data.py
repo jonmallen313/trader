@@ -289,6 +289,8 @@ class AlpacaWebSocketFeed(WebSocketDataFeed):
     
     _instance = None  # Singleton to prevent multiple connections
     _stream = None
+    _stream_running = False  # Track if stream is already running
+    _stream_task = None  # Track the running task
     
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -297,6 +299,7 @@ class AlpacaWebSocketFeed(WebSocketDataFeed):
     
     def __init__(self, symbols: List[str], api_key: str, secret_key: str):
         if hasattr(self, '_initialized'):
+            self.logger.info(f"AlpacaWebSocketFeed already initialized, skipping")
             return  # Already initialized
         super().__init__(symbols)
         self.api_key = api_key
@@ -305,14 +308,21 @@ class AlpacaWebSocketFeed(WebSocketDataFeed):
         
     async def start(self):
         """Start Alpaca websocket connection (singleton)."""
+        # Check if already running
+        if self._stream_running:
+            self.logger.info("Alpaca WebSocket already running, skipping duplicate start")
+            return
+            
+        # Check if stream exists and is running
         if self._stream is not None and self.is_running:
-            self.logger.info("Alpaca WebSocket already running")
+            self.logger.info("Alpaca WebSocket stream exists and is running")
             return
             
         try:
             from alpaca.data.live import StockDataStream
             
             self.is_running = True
+            self._stream_running = True
             
             # Create Alpaca stream (only once)
             if self._stream is None:
@@ -320,15 +330,19 @@ class AlpacaWebSocketFeed(WebSocketDataFeed):
                 # Subscribe to quotes
                 self._stream.subscribe_quotes(self._handle_quote, *self.symbols)
                 self.logger.info(f"Starting Alpaca WebSocket for {len(self.symbols)} symbols")
+            else:
+                self.logger.info("Reusing existing Alpaca WebSocket stream")
             
             # Run forever (but only one instance)
             await self._stream._run_forever()
             
         except ImportError:
             self.logger.error("alpaca-py not installed. Install with: pip install alpaca-py")
+            self._stream_running = False
         except Exception as e:
             self.logger.error(f"Alpaca connection error: {e}")
             self.is_running = False
+            self._stream_running = False
             self._stream = None  # Reset on error
             
     async def _handle_quote(self, quote):
@@ -357,6 +371,7 @@ class DataFeedManager:
     def __init__(self):
         self.feeds: List[WebSocketDataFeed] = []
         self.is_running = False
+        self._started = False  # Track if already started
         self.logger = logging.getLogger(__name__)
         
     def add_feed(self, feed: WebSocketDataFeed):
@@ -365,7 +380,12 @@ class DataFeedManager:
         
     async def start_all(self):
         """Start all registered data feeds."""
+        if self._started:
+            self.logger.info("DataFeedManager already started, skipping duplicate start")
+            return
+            
         self.is_running = True
+        self._started = True
         self.logger.info(f"Starting {len(self.feeds)} data feeds")
         
         tasks = [feed.start() for feed in self.feeds]

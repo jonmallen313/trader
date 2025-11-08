@@ -526,7 +526,9 @@ async def launch_algorithm(config: dict):
                 'current_order_id': None,
                 'entry_price': None,
                 'quantity': None,
-                'entry_time': None  # Track when position was opened
+                'entry_time': None,  # Track when position was opened
+                'close_failed_count': 0,  # Track failed close attempts
+                'last_close_attempt': None  # Track last failed close time
             })
         
         algorithms[algo_id] = algorithm
@@ -620,11 +622,30 @@ async def get_algorithm_status(algo_id: str):
                 # CLOSE EXISTING POSITION
                 elif position['status'] == 'trading' and position['current_order_id']:
                     try:
+                        # Check if too many failed close attempts (cooldown)
+                        if position.get('close_failed_count', 0) >= 3:
+                            if position.get('last_close_attempt'):
+                                cooldown_seconds = (datetime.now() - position['last_close_attempt']).total_seconds()
+                                if cooldown_seconds < 30:  # 30 second cooldown after 3 failures
+                                    continue
+                            # Reset counter after cooldown
+                            position['close_failed_count'] = 0
+                        
                         # Check minimum holding time (60 seconds to avoid wash trade detection)
                         if position.get('entry_time'):
                             holding_seconds = (datetime.now() - position['entry_time']).total_seconds()
                             if holding_seconds < 60:
                                 continue  # Don't close yet, too soon
+                        
+                        # Verify the BUY order is filled before trying to SELL
+                        try:
+                            buy_order = trading_client.get_order_by_id(position['current_order_id'])
+                            if buy_order.status != 'filled':
+                                logger.info(f"Position {position['id']} BUY order not filled yet (status: {buy_order.status})")
+                                continue  # Wait for fill
+                        except Exception as e:
+                            logger.warning(f"Could not check order status: {e}")
+                            # Continue anyway, might be filled
                         
                         # Get AI prediction to decide exit
                         if trading_system and trading_system.predictor:
@@ -674,11 +695,16 @@ async def get_algorithm_status(algo_id: str):
                             position['entry_price'] = None
                             position['quantity'] = None
                             position['entry_time'] = None
+                            position['close_failed_count'] = 0
+                            position['last_close_attempt'] = None
                             
                             logger.info(f"REAL TRADE CLOSED: {algo['symbol']} P&L: ${trade_pnl:.2f} (Order: {order.id})")
                     
                     except Exception as e:
                         logger.error(f"Error closing position: {e}")
+                        # Track failed close attempts
+                        position['close_failed_count'] = position.get('close_failed_count', 0) + 1
+                        position['last_close_attempt'] = datetime.now()
             
             # Count active trading positions
             algo['active_positions'] = len([p for p in algo['positions'] if p['status'] == 'trading'])
