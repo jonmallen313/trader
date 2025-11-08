@@ -113,7 +113,6 @@ async def get_stocks():
         # If no data from feeds, fetch real-time data from Alpaca
         if not stocks_data:
             try:
-                import os
                 from alpaca.data.historical import StockHistoricalDataClient
                 from alpaca.data.requests import StockLatestBarRequest
                 
@@ -231,7 +230,6 @@ async def get_positions():
         
         # Fallback: fetch directly from Alpaca
         try:
-            import os
             from alpaca.trading.client import TradingClient
             
             api_key = os.getenv('ALPACA_API_KEY')
@@ -293,7 +291,6 @@ async def get_account():
         
         # Fallback: fetch directly from Alpaca
         try:
-            import os
             from alpaca.trading.client import TradingClient
             
             api_key = os.getenv('ALPACA_API_KEY')
@@ -393,7 +390,6 @@ async def get_stock_detail(symbol: str):
 async def place_order(order: dict):
     """Place a trading order."""
     try:
-        import os
         from alpaca.trading.client import TradingClient
         from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
         from alpaca.trading.enums import OrderSide, TimeInForce
@@ -506,8 +502,6 @@ async def create_algorithm(algo_config: dict):
 async def launch_algorithm(config: dict):
     """Launch a REAL live trading algorithm with actual trades (stocks or crypto)."""
     try:
-        import os
-        
         algo_id = f"algo_{datetime.now().timestamp()}"
         symbol = config.get('symbol')
         
@@ -620,7 +614,6 @@ async def launch_algorithm(config: dict):
 async def get_algorithm_status(algo_id: str):
     """Get live status and execute REAL trades (stocks AND crypto via Alpaca - 24/7!)."""
     try:
-        import os
         import random
         
         if algo_id not in algorithms:
