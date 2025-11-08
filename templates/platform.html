@@ -519,31 +519,6 @@
             box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
         }
         
-        /* Timeframe Buttons */
-        .btn-timeframe {
-            background: transparent;
-            color: var(--text-secondary);
-            font-weight: 600;
-            font-size: 13px;
-            padding: 6px 14px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .btn-timeframe:hover {
-            background: var(--bg-card);
-            color: var(--text-primary);
-            border-color: var(--accent-blue);
-        }
-        
-        .btn-timeframe.active {
-            background: var(--accent-blue);
-            color: white;
-            border-color: var(--accent-blue);
-        }
-        
         /* Modern Trading Interface - Anthropic Style */
         .trading-interface {
             height: calc(100vh - 0px);
@@ -1187,16 +1162,7 @@
                     <div class="trading-layout">
                         <!-- Full-Screen Chart -->
                         <div class="chart-area">
-                            <div style="display: flex; gap: 10px; padding: 10px; background: #1a1f3a; border-bottom: 1px solid #2d3748;">
-                                <button class="btn-timeframe active" data-interval="1" onclick="changeChartTimeframe('1')">1m</button>
-                                <button class="btn-timeframe" data-interval="5" onclick="changeChartTimeframe('5')">5m</button>
-                                <button class="btn-timeframe" data-interval="15" onclick="changeChartTimeframe('15')">15m</button>
-                                <button class="btn-timeframe" data-interval="30" onclick="changeChartTimeframe('30')">30m</button>
-                                <button class="btn-timeframe" data-interval="60" onclick="changeChartTimeframe('60')">1h</button>
-                                <button class="btn-timeframe" data-interval="240" onclick="changeChartTimeframe('240')">4h</button>
-                                <button class="btn-timeframe" data-interval="D" onclick="changeChartTimeframe('D')">1D</button>
-                            </div>
-                            <div id="tradingview_widget" style="width: 100%; height: calc(100% - 50px);"></div>
+                            <div id="tradingview_widget" style="width: 100%; height: 100%;"></div>
                         </div>
                         
                         <!-- Right Panel: Algorithm Builder -->
@@ -2088,37 +2054,26 @@
         
         function loadTradingViewChart(symbol) {
             currentSymbol = symbol;
-            const interval = document.querySelector('.btn-timeframe.active')?.getAttribute('data-interval') || '1';
             
             currentChart = new TradingView.widget({
                 "width": "100%",
                 "height": "100%",
                 "symbol": symbol,
-                "interval": interval,
+                "interval": "1",  // Default to 1 minute
                 "timezone": "America/New_York",
                 "theme": "dark",
                 "style": "1",
                 "locale": "en",
-                "toolbar_bg": "#000000",
+                "toolbar_bg": "#1a1f3a",
                 "enable_publishing": false,
                 "hide_side_toolbar": false,
                 "allow_symbol_change": true,
+                "save_image": false,
+                "studies": [
+                    "Volume@tv-basicstudies"
+                ],
                 "container_id": "tradingview_widget"
             });
-        }
-        
-        function changeChartTimeframe(interval) {
-            // Update button states
-            document.querySelectorAll('.btn-timeframe').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            
-            // Reload chart with new interval
-            if (currentSymbol) {
-                document.getElementById('tradingview_widget').innerHTML = '';
-                loadTradingViewChart(currentSymbol);
-            }
         }
         
         async function loadAlgorithms() {
