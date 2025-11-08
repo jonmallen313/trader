@@ -186,10 +186,19 @@ class WebSocketDataFeed:
     async def get_latest_data(self, symbol: str = None) -> Optional[Dict]:
         """Get the latest data and features for a symbol."""
         if symbol:
-            return self.buffers[symbol].get_features() if symbol in self.buffers else None
+            features = self.buffers[symbol].get_features() if symbol in self.buffers else None
+            if features:
+                features['symbol'] = symbol
+            return features
         else:
-            # Return latest data for all symbols
-            return {sym: buf.get_features() for sym, buf in self.buffers.items()}
+            # Return latest data for all symbols with symbol key added
+            result = {}
+            for sym, buf in self.buffers.items():
+                features = buf.get_features()
+                if features:
+                    features['symbol'] = sym
+                    result[sym] = features
+            return result if result else None
             
     def _notify_callbacks(self, symbol: str, data: MarketDataPoint):
         """Notify all registered callbacks of new data."""

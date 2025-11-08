@@ -321,13 +321,13 @@ class OnlineLearningModel(MicroTrendModel):
                 n_models=10,
                 max_features="sqrt",
                 lambda_value=6,
-                grace_period=50,
+                grace_period=5,  # REDUCED: Start predicting after just 5 samples
                 seed=42
             )
         except (ImportError, AttributeError):
             # Fallback to HoeffdingTree if ARF not available
             self.model = tree.HoeffdingTreeClassifier(
-                grace_period=50,
+                grace_period=5,  # REDUCED: Start predicting after just 5 samples
                 split_confidence=0.01
             )
         
@@ -336,6 +336,7 @@ class OnlineLearningModel(MicroTrendModel):
         self.n_samples = 0
         # Online learning models can start predicting immediately (learns as it goes)
         self.is_trained = True
+        self.logger.info("🚀 Online learning model initialized with grace_period=5")
         
     def train(self, historical_data: List[Dict]):
         """Initialize with historical data."""
@@ -377,6 +378,17 @@ class OnlineLearningModel(MicroTrendModel):
                 
             features = self.feature_engineer.transform(features)
             feature_dict = {f'f_{i}': features[i] for i in range(len(features))}
+            
+            # AUTO-LEARN: Train on incoming data with synthetic label (trend direction)
+            # This allows the model to build up knowledge even before real trades
+            if self.n_samples < 100:  # Bootstrap phase
+                # Create synthetic label based on recent price momentum
+                price_change = market_data.get('price_change_5', 0)
+                if abs(price_change) > 0.001:  # Only learn from meaningful moves
+                    synthetic_label = 2 if price_change > 0 else 0  # 2=bullish, 0=bearish
+                    self.model.learn_one(feature_dict, synthetic_label)
+                    if self.n_samples % 10 == 0:
+                        self.logger.info(f"🎓 Bootstrap learning: {self.n_samples} samples trained")
             
             # Get prediction
             prediction = self.model.predict_one(feature_dict)
@@ -422,7 +434,7 @@ class OnlineLearningModel(MicroTrendModel):
             )
             
         except Exception as e:
-            self.logger.error(f"Online prediction error: {e}")
+            self.logger.error(f"Online prediction error: {e}", exc_info=True)
             return None
             
     def learn_from_trade(self, features: Dict, actual_result: str):
@@ -476,17 +488,27 @@ class EnsemblePredictor:
         if market_data and isinstance(market_data, dict):
             # Check if it's a dict of symbols (has nested dicts with 'symbol' key)
             first_key = next(iter(market_data.keys()))
-            if isinstance(market_data[first_key], dict) and 'symbol' in market_data[first_key]:
-                # It's a dict of {symbol: data} - predict for each symbol
-                for symbol, data in market_data.items():
-                    prediction = await self._predict_single(data)
-                    if prediction:
-                        return prediction  # Return first valid prediction
-                return None
+            
+            # If first key's value is a dict with 'symbol', it's multi-symbol data
+            if isinstance(market_data[first_key], dict):
+                if 'symbol' in market_data[first_key]:
+                    self.logger.debug(f"🔍 Received multi-symbol data: {list(market_data.keys())}")
+                    # It's a dict of {symbol: data} - predict for each symbol
+                    for symbol, data in market_data.items():
+                        prediction = await self._predict_single(data)
+                        if prediction:
+                            return prediction  # Return first valid prediction
+                    return None
+                else:
+                    # First value is a dict but no 'symbol' key - treat as single symbol data
+                    self.logger.debug(f"🔍 Received single-symbol data structure")
+                    return await self._predict_single(market_data)
             else:
-                # It's a single symbol's data
+                # First value is not a dict - treat as single symbol data
+                self.logger.debug(f"🔍 Received flat data structure")
                 return await self._predict_single(market_data)
         
+        self.logger.warning(f"⚠️ Invalid market_data format: {type(market_data)}")
         return None
     
     async def _predict_single(self, market_data: Dict) -> Optional[Prediction]:
