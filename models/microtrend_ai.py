@@ -386,19 +386,21 @@ class OnlineLearningModel(MicroTrendModel):
             if self.n_samples < 100:  # Bootstrap phase
                 # Create synthetic label based on recent price momentum
                 price_change = market_data.get('price_change_5', 0)
-                if abs(price_change) > 0.001:  # Only learn from meaningful moves
-                    synthetic_label = 2 if price_change > 0 else 0  # 2=bullish, 0=bearish
-                    self.model.learn_one(feature_dict, synthetic_label)
-                    self.n_samples += 1
-                    if self.n_samples % 5 == 1:  # Log every 5th sample
-                        self.logger.info(f"🎓 Bootstrap: {symbol} trained {self.n_samples}/100 samples (grace_period check at 5)")
+                # Learn from EVERY sample during bootstrap to build up grace_period quickly
+                synthetic_label = 2 if price_change > 0 else 0  # 2=bullish, 0=bearish
+                self.model.learn_one(feature_dict, synthetic_label)
+                self.n_samples += 1
+                if self.n_samples % 5 == 1:  # Log every 5th sample
+                    self.logger.info(f"🎓 Bootstrap: {symbol} trained {self.n_samples}/100 samples (grace_period=5)")
             
             # Get prediction
             prediction = self.model.predict_one(feature_dict)
             
             if prediction is None:
-                self.logger.info(f"🤔 River model returned None for {symbol} (probably waiting for grace_period=5 samples)")
-                return None
+                if self.n_samples < 5:
+                    self.logger.info(f"⏳ {symbol}: Waiting for grace_period (have {self.n_samples}/5 samples)")
+                else:
+                    self.logger.info(f"🤔 {symbol}: Model returned None despite {self.n_samples} samples trained")
                 return None
                 
             # Get confidence (for ensemble models)
