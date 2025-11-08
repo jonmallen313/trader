@@ -82,6 +82,10 @@ class AutoPilotController:
         self.available_capital = initial_capital
         self.is_running = False
         
+        # Track pending orders to prevent duplicates
+        self.pending_orders: Dict[str, float] = {}  # {symbol: timestamp}
+        self.last_trade_time: Dict[str, float] = {}  # {symbol_side: timestamp}
+        
         # Queues for async communication
         self.signal_queue = asyncio.Queue()
         self.price_updates = asyncio.Queue()
@@ -147,6 +151,30 @@ class AutoPilotController:
             
     async def _can_open_position(self, signal: TradingSignal) -> bool:
         """Check if we can open a new position based on risk rules."""
+        # Check for pending order on same symbol
+        current_time = time.time()
+        if signal.symbol in self.pending_orders:
+            order_time = self.pending_orders[signal.symbol]
+            if current_time - order_time < 5.0:  # 5 second cooldown
+                self.logger.debug(f"⏳ Order pending for {signal.symbol}, skipping")
+                return False
+        
+        # Check for existing position in same direction
+        symbol_side_key = f"{signal.symbol}_{signal.side.value}"
+        if symbol_side_key in self.last_trade_time:
+            last_time = self.last_trade_time[symbol_side_key]
+            if current_time - last_time < 30.0:  # 30 second cooldown
+                self.logger.debug(f"⏳ Recent {signal.side.value} trade for {signal.symbol}, cooldown active")
+                return False
+        
+        # Check for existing open position in same direction
+        for position in self.positions.values():
+            if (position.symbol == signal.symbol and 
+                position.side == signal.side and 
+                position.status == PositionStatus.OPEN):
+                self.logger.debug(f"📍 Already have {signal.side.value} position for {signal.symbol}")
+                return False
+        
         # Check if we've hit global targets
         if self.realized_profit >= GLOBAL_TAKE_PROFIT:
             self.logger.info("Global take profit reached, no new positions")
@@ -174,6 +202,9 @@ class AutoPilotController:
     async def _open_position(self, signal: TradingSignal):
         """Open a new position based on the signal."""
         try:
+            # Mark order as pending to prevent duplicates
+            self.pending_orders[signal.symbol] = time.time()
+            
             # Get current price
             current_price = await self.exchange.get_price(signal.symbol)
             
@@ -207,6 +238,14 @@ class AutoPilotController:
                 order_type="market"
             )
             
+            # Record trade time to enforce cooldown
+            symbol_side_key = f"{signal.symbol}_{signal.side.value}"
+            self.last_trade_time[symbol_side_key] = time.time()
+            
+            # Remove from pending
+            if signal.symbol in self.pending_orders:
+                del self.pending_orders[signal.symbol]
+            
             # Create position record
             position = Position(
                 id=order_result["id"],
@@ -230,6 +269,9 @@ class AutoPilotController:
                 
         except Exception as e:
             self.logger.error(f"Error opening position: {e}")
+            # Clean up pending order on error
+            if signal.symbol in self.pending_orders:
+                del self.pending_orders[signal.symbol]
             
     async def _close_position(self, position: Position, reason: str = "TP_SL"):
         """Close an open position."""
