@@ -525,7 +525,8 @@ async def launch_algorithm(config: dict):
                 'trades_count': 0,
                 'current_order_id': None,
                 'entry_price': None,
-                'quantity': None
+                'quantity': None,
+                'entry_time': None  # Track when position was opened
             })
         
         algorithms[algo_id] = algorithm
@@ -608,6 +609,7 @@ async def get_algorithm_status(algo_id: str):
                         position['current_order_id'] = order.id
                         position['entry_price'] = current_price
                         position['quantity'] = qty
+                        position['entry_time'] = datetime.now()  # Track entry time
                         position['trades_count'] += 1
                         
                         logger.info(f"REAL TRADE OPENED: {algo['symbol']} {qty} shares @ ${current_price:.2f} (Order: {order.id})")
@@ -616,8 +618,14 @@ async def get_algorithm_status(algo_id: str):
                         logger.error(f"Error opening position: {e}")
                 
                 # CLOSE EXISTING POSITION
-                elif position['status'] == 'trading' and position['current_order_id'] and random.random() > 0.4:
+                elif position['status'] == 'trading' and position['current_order_id']:
                     try:
+                        # Check minimum holding time (60 seconds to avoid wash trade detection)
+                        if position.get('entry_time'):
+                            holding_seconds = (datetime.now() - position['entry_time']).total_seconds()
+                            if holding_seconds < 60:
+                                continue  # Don't close yet, too soon
+                        
                         # Get AI prediction to decide exit
                         if trading_system and trading_system.predictor:
                             # Use real AI model prediction
@@ -665,6 +673,7 @@ async def get_algorithm_status(algo_id: str):
                             position['current_order_id'] = None
                             position['entry_price'] = None
                             position['quantity'] = None
+                            position['entry_time'] = None
                             
                             logger.info(f"REAL TRADE CLOSED: {algo['symbol']} P&L: ${trade_pnl:.2f} (Order: {order.id})")
                     
