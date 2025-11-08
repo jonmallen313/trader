@@ -405,11 +405,11 @@ class OnlineLearningModel(MicroTrendModel):
         # Skip STOCK predictions outside market hours (crypto trades 24/7)
         is_crypto = '/' in symbol or 'USD' in symbol  # BTC/USD, ETH/USD, BTCUSD, etc.
         if not is_crypto and not is_market_hours():
-            self.logger.debug(f"⏰ Market closed, skipping stock prediction for {symbol}")
+            self.logger.info(f"⏰ Market closed, skipping stock prediction for {symbol}")
             return None
         
         if not self.is_trained:
-            self.logger.warning(f"🚫 Model not trained yet for {symbol}")
+            self.logger.info(f"🚫 Model NOT trained yet for {symbol} - samples: {self.n_samples}/100")
             return None
             
         try:
@@ -617,20 +617,21 @@ class EnsemblePredictor:
     async def _predict_single(self, market_data: Dict) -> Optional[Prediction]:
         """Get ensemble prediction for a single symbol's market data."""
         symbol = market_data.get('symbol', 'UNKNOWN')
-        self.logger.debug(f"🎯 Ensemble: Predicting for {symbol} with {len(self.models)} models")
+        self.logger.info(f"🎯 Ensemble: Predicting for {symbol} with {len(self.models)} models")
         
         predictions = []
         confidences = []
         
         for model in self.models:
             try:
+                self.logger.info(f"📊 Calling predict on model {model.model_name} for {symbol}")
                 pred = model.predict(market_data)
                 if pred:
                     predictions.append(pred)
                     confidences.append(pred.confidence)
                     self.logger.info(f"✅ Model {model.model_name}: {pred.side.value} @ {pred.confidence:.2%}")
                 else:
-                    self.logger.debug(f"⚠️ Model {model.model_name}: No prediction")
+                    self.logger.info(f"⚠️ Model {model.model_name}: No prediction returned")
             except Exception as e:
                 self.logger.error(f"❌ Model {model.model_name} error: {e}", exc_info=True)
                 
