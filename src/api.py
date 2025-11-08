@@ -51,11 +51,11 @@ async def get_stocks():
     try:
         stocks_data = []
         
-        # Fetch crypto prices from Coinbase (24/7 availability, no geo-restrictions)
+        # Fetch crypto prices from OKX (24/7 availability, works everywhere)
         try:
             import ccxt
-            exchange = ccxt.coinbase({'enableRateLimit': True})
-            crypto_symbols = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'DOGE/USD', 'AVAX/USD']
+            exchange = ccxt.okx({'enableRateLimit': True})
+            crypto_symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'DOGE/USDT', 'AVAX/USDT']
             
             for symbol in crypto_symbols:
                 try:
@@ -73,7 +73,7 @@ async def get_stocks():
                 except Exception as e:
                     logger.warning(f"Error fetching {symbol}: {e}")
         except Exception as e:
-            logger.error(f"Error initializing Coinbase: {e}")
+            logger.error(f"Error initializing OKX: {e}")
         
         # Get data from trading system if available
         if trading_system and trading_system.data_feed_manager:
@@ -132,7 +132,7 @@ async def get_stocks():
                             })
                 else:
                     # No credentials - return demo data with crypto
-                    for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT', 'BTC/USD', 'ETH/USD', 'SOL/USD']:
+                    for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT', 'BTC/USDT', 'ETH/USDT', 'SOL/USDT']:
                         stocks_data.append({
                             'symbol': symbol,
                             'price': 0.0,
@@ -144,7 +144,7 @@ async def get_stocks():
             except Exception as e:
                 logger.error(f"Error fetching Alpaca data: {e}")
                 # Return demo data on error with crypto
-                for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT', 'BTC/USD', 'ETH/USD', 'SOL/USD']:
+                for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT', 'BTC/USDT', 'ETH/USDT', 'SOL/USDT']:
                     stocks_data.append({
                         'symbol': symbol,
                         'price': 0.0,
@@ -501,31 +501,45 @@ async def launch_algorithm(config: dict):
         is_crypto = '/' in symbol  # Crypto symbols have format like BTC/USDT
         
         if is_crypto:
-            # Use Coinbase for crypto trading (24/7 market, no geo-restrictions)
+            # Use OKX TESTNET for REAL 24/7 paper trading (sandbox with virtual funds, NO geo-restrictions!)
             import ccxt
             
-            api_key = os.getenv('COINBASE_API_KEY')
-            secret = os.getenv('COINBASE_API_SECRET')
-            
-            if not api_key or not secret:
-                return {'success': False, 'error': 'Coinbase API credentials not configured. Add COINBASE_API_KEY and COINBASE_API_SECRET to Railway.'}
-            
-            # Verify Coinbase connection
-            exchange = ccxt.coinbase({
-                'apiKey': api_key,
-                'secret': secret,
+            # OKX Testnet - REAL paper trading sandbox
+            exchange = ccxt.okx({
+                'apiKey': os.getenv('OKX_TESTNET_API_KEY', ''),
+                'secret': os.getenv('OKX_TESTNET_API_SECRET', ''),
+                'password': os.getenv('OKX_TESTNET_PASSPHRASE', ''),  # OKX requires passphrase
                 'enableRateLimit': True,
+                'options': {
+                    'defaultType': 'spot',
+                }
             })
             
-            # Check balance
-            balance = exchange.fetch_balance()
-            available_usd = float(balance.get('USD', {}).get('free', 0.0))
+            # Set to testnet mode for REAL paper trading
+            exchange.set_sandbox_mode(True)
             
-            if available_usd < config.get('capital'):
-                return {'success': False, 'error': f'Insufficient USD. Available: ${available_usd:.2f}'}
+            # Check if we have testnet credentials
+            if not os.getenv('OKX_TESTNET_API_KEY') or not os.getenv('OKX_TESTNET_API_SECRET') or not os.getenv('OKX_TESTNET_PASSPHRASE'):
+                return {'success': False, 'error': 'OKX Testnet API credentials required. Get them at: https://www.okx.com/account/my-api (switch to Demo Trading)'}
             
-            is_real_trading = True
-            logger.info(f"Real Coinbase trading enabled for {symbol}")
+            try:
+                # Load markets
+                exchange.load_markets()
+                
+                # Check balance on TESTNET (virtual funds)
+                balance = exchange.fetch_balance()
+                available_usdt = float(balance.get('USDT', {}).get('free', 0.0))
+                
+                logger.info(f"OKX Testnet balance: ${available_usdt:.2f} USDT (virtual)")
+                
+                if available_usdt < config.get('capital'):
+                    return {'success': False, 'error': f'Insufficient testnet USDT. Available: ${available_usdt:.2f}. Get free testnet funds at: https://www.okx.com/account/balance'}
+                
+            except Exception as e:
+                return {'success': False, 'error': f'Failed to connect to OKX Testnet: {str(e)}. Visit https://www.okx.com/account/my-api to create Demo Trading API keys.'}
+            
+            is_real_trading = True  # Real paper trading on testnet
+            logger.info(f"REAL paper trading enabled on OKX Testnet for {symbol}")
         else:
             # Use Alpaca for stock trading
             from alpaca.trading.client import TradingClient
