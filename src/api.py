@@ -965,3 +965,54 @@ def set_trading_system(system):
     """Set the trading system reference for API endpoints."""
     global trading_system
     trading_system = system
+
+
+@router.post("/admin/cancel-order/{order_id}")
+async def cancel_order(order_id: str):
+    """Emergency endpoint to cancel a stuck order."""
+    try:
+        if trading_system and trading_system.autopilot:
+            broker = trading_system.autopilot.exchange
+            success = await broker.cancel_order(order_id)
+            
+            if success:
+                logger.info(f"✅ Cancelled order: {order_id}")
+                return {"status": "success", "message": f"Cancelled order {order_id}"}
+            else:
+                logger.warning(f"⚠️ Failed to cancel order: {order_id}")
+                return {"status": "error", "message": "Failed to cancel order"}
+        else:
+            return {"status": "error", "message": "Trading system not available"}
+    except Exception as e:
+        logger.error(f"Error canceling order: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/admin/orders")
+async def list_orders():
+    """List all open orders."""
+    try:
+        if trading_system and trading_system.autopilot:
+            broker = trading_system.autopilot.exchange
+            # For Alpaca
+            if hasattr(broker, 'client'):
+                orders = broker.client.get_orders()
+                return {
+                    "status": "success",
+                    "orders": [
+                        {
+                            "id": str(order.id),
+                            "symbol": order.symbol,
+                            "side": order.side.value,
+                            "qty": float(order.qty) if order.qty else None,
+                            "notional": float(order.notional) if order.notional else None,
+                            "status": order.status.value,
+                            "created_at": str(order.created_at)
+                        }
+                        for order in orders
+                    ]
+                }
+        return {"status": "error", "message": "Trading system not available"}
+    except Exception as e:
+        logger.error(f"Error listing orders: {e}")
+        return {"status": "error", "message": str(e)}
