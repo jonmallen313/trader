@@ -51,29 +51,37 @@ async def get_stocks():
     try:
         stocks_data = []
         
-        # Fetch crypto prices from OKX (24/7 availability, works everywhere)
+        # Fetch crypto prices from Alpaca (24/7 crypto paper trading!)
         try:
-            import ccxt
-            exchange = ccxt.okx({'enableRateLimit': True})
-            crypto_symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'DOGE/USDT', 'AVAX/USDT']
+            from alpaca.data.historical import CryptoHistoricalDataClient
+            from alpaca.data.requests import CryptoLatestBarRequest
             
-            for symbol in crypto_symbols:
-                try:
-                    ticker = exchange.fetch_ticker(symbol)
-                    stocks_data.append({
-                        'symbol': symbol,
-                        'price': round(ticker['last'], 2),
-                        'change': round(ticker['percentage'], 2) if ticker.get('percentage') else 0.0,
-                        'volume': int(ticker['baseVolume']) if ticker.get('baseVolume') else 0,
-                        'high': round(ticker['high'], 2) if ticker.get('high') else 0,
-                        'low': round(ticker['low'], 2) if ticker.get('low') else 0,
-                        'timestamp': datetime.now().isoformat(),
-                        'type': 'crypto'
-                    })
-                except Exception as e:
-                    logger.warning(f"Error fetching {symbol}: {e}")
+            api_key = os.getenv('ALPACA_API_KEY')
+            secret = os.getenv('ALPACA_API_SECRET')
+            
+            if api_key and secret:
+                crypto_client = CryptoHistoricalDataClient(api_key, secret)
+                crypto_symbols = ['BTC/USD', 'ETH/USD', 'DOGE/USD', 'AVAX/USD', 'LTC/USD']
+                
+                request = CryptoLatestBarRequest(symbol_or_symbols=crypto_symbols)
+                bars = crypto_client.get_crypto_latest_bar(request)
+                
+                for symbol, bar in bars.items():
+                    try:
+                        stocks_data.append({
+                            'symbol': symbol,
+                            'price': round(float(bar.close), 2),
+                            'change': 0.0,  # Calculate from 24h data if needed
+                            'volume': int(bar.volume),
+                            'high': round(float(bar.high), 2),
+                            'low': round(float(bar.low), 2),
+                            'timestamp': datetime.now().isoformat(),
+                            'type': 'crypto'
+                        })
+                    except Exception as e:
+                        logger.warning(f"Error processing {symbol}: {e}")
         except Exception as e:
-            logger.error(f"Error initializing OKX: {e}")
+            logger.error(f"Error fetching Alpaca crypto: {e}")
         
         # Get data from trading system if available
         if trading_system and trading_system.data_feed_manager:
@@ -498,48 +506,34 @@ async def launch_algorithm(config: dict):
         symbol = config.get('symbol')
         
         # Determine if crypto or stock based on symbol format
-        is_crypto = '/' in symbol  # Crypto symbols have format like BTC/USDT
+        is_crypto = '/' in symbol  # Crypto symbols have format like BTC/USD
         
         if is_crypto:
-            # Use OKX TESTNET for REAL 24/7 paper trading (sandbox with virtual funds, NO geo-restrictions!)
-            import ccxt
+            # Use Alpaca for crypto paper trading (24/7 markets, same API as stocks!)
+            from alpaca.trading.client import TradingClient
             
-            # OKX Testnet - REAL paper trading sandbox
-            exchange = ccxt.okx({
-                'apiKey': os.getenv('OKX_TESTNET_API_KEY', ''),
-                'secret': os.getenv('OKX_TESTNET_API_SECRET', ''),
-                'password': os.getenv('OKX_TESTNET_PASSPHRASE', ''),  # OKX requires passphrase
-                'enableRateLimit': True,
-                'options': {
-                    'defaultType': 'spot',
-                }
-            })
+            api_key = os.getenv('ALPACA_API_KEY')
+            secret = os.getenv('ALPACA_API_SECRET')
             
-            # Set to testnet mode for REAL paper trading
-            exchange.set_sandbox_mode(True)
-            
-            # Check if we have testnet credentials
-            if not os.getenv('OKX_TESTNET_API_KEY') or not os.getenv('OKX_TESTNET_API_SECRET') or not os.getenv('OKX_TESTNET_PASSPHRASE'):
-                return {'success': False, 'error': 'OKX Testnet API credentials required. Get them at: https://www.okx.com/account/my-api (switch to Demo Trading)'}
+            if not api_key or not secret:
+                return {'success': False, 'error': 'Alpaca API credentials not configured'}
             
             try:
-                # Load markets
-                exchange.load_markets()
+                # Alpaca paper trading supports both stocks AND crypto!
+                trading_client = TradingClient(api_key, secret, paper=True)
+                account = trading_client.get_account()
                 
-                # Check balance on TESTNET (virtual funds)
-                balance = exchange.fetch_balance()
-                available_usdt = float(balance.get('USDT', {}).get('free', 0.0))
+                available_cash = float(account.cash)
+                logger.info(f"Alpaca crypto paper trading - Available cash: ${available_cash:.2f}")
                 
-                logger.info(f"OKX Testnet balance: ${available_usdt:.2f} USDT (virtual)")
-                
-                if available_usdt < config.get('capital'):
-                    return {'success': False, 'error': f'Insufficient testnet USDT. Available: ${available_usdt:.2f}. Get free testnet funds at: https://www.okx.com/account/balance'}
+                if available_cash < config.get('capital'):
+                    return {'success': False, 'error': f'Insufficient paper trading balance. Available: ${available_cash:.2f}, Required: ${config.get("capital"):.2f}'}
                 
             except Exception as e:
-                return {'success': False, 'error': f'Failed to connect to OKX Testnet: {str(e)}. Visit https://www.okx.com/account/my-api to create Demo Trading API keys.'}
+                return {'success': False, 'error': f'Failed to connect to Alpaca: {str(e)}'}
             
-            is_real_trading = True  # Real paper trading on testnet
-            logger.info(f"REAL paper trading enabled on OKX Testnet for {symbol}")
+            is_real_trading = True  # Real paper trading on Alpaca
+            logger.info(f"REAL crypto paper trading enabled on Alpaca for {symbol}")
         else:
             # Use Alpaca for stock trading
             from alpaca.trading.client import TradingClient
@@ -618,7 +612,7 @@ async def launch_algorithm(config: dict):
 
 @router.get("/algorithms/{algo_id}/status")
 async def get_algorithm_status(algo_id: str):
-    """Get live status and execute REAL trades (stocks via Alpaca or crypto via Binance)."""
+    """Get live status and execute REAL trades (stocks AND crypto via Alpaca - 24/7!)."""
     try:
         import os
         import random
@@ -639,51 +633,39 @@ async def get_algorithm_status(algo_id: str):
             # Fallback to simulated trading if not in real mode
             return await get_simulated_algo_status(algo_id, algo)
         
-        # REAL TRADING MODE
+        # REAL TRADING MODE - Alpaca supports both stocks AND crypto!
         try:
+            from alpaca.trading.client import TradingClient
+            from alpaca.trading.requests import MarketOrderRequest
+            from alpaca.trading.enums import OrderSide, TimeInForce
+            
+            api_key = os.getenv('ALPACA_API_KEY')
+            secret = os.getenv('ALPACA_API_SECRET')
+            
+            if not api_key or not secret:
+                logger.error("No Alpaca credentials for real trading")
+                return {'status': algo}
+            
+            # Alpaca paper trading works for both stocks AND crypto (24/7!)
+            trading_client = TradingClient(api_key, secret, paper=True)
+            can_trade = True
+            
+            # Get current market price
             if is_crypto:
-                # CRYPTO TRADING via Coinbase
-                import ccxt
+                # For crypto, use crypto data client
+                from alpaca.data.historical import CryptoHistoricalDataClient
+                from alpaca.data.requests import CryptoLatestBarRequest
                 
-                api_key = os.getenv('COINBASE_API_KEY')
-                secret = os.getenv('COINBASE_API_SECRET')
-                
-                if not api_key or not secret:
-                    logger.error("No Coinbase credentials - cannot execute real trades")
-                    return {'status': algo, 'error': 'Missing Coinbase API credentials'}
-                
-                # Initialize exchange for REAL trading
-                exchange = ccxt.coinbase({
-                    'apiKey': api_key,
-                    'secret': secret,
-                    'enableRateLimit': True,
-                })
-                can_trade = True
-                
-                # Get current market price
-                ticker = exchange.fetch_ticker(algo['symbol'])
-                current_price = float(ticker['last'])
-                
+                data_client = CryptoHistoricalDataClient(api_key, secret)
+                request = CryptoLatestBarRequest(symbol_or_symbols=[algo['symbol']])
+                bars = data_client.get_crypto_latest_bar(request)
+                current_price = float(bars[algo['symbol']].close) if algo['symbol'] in bars else None
             else:
-                # STOCK TRADING via Alpaca
-                from alpaca.trading.client import TradingClient
-                from alpaca.trading.requests import MarketOrderRequest
-                from alpaca.trading.enums import OrderSide, TimeInForce
+                # For stocks, use stock data client
                 from alpaca.data.historical import StockHistoricalDataClient
                 from alpaca.data.requests import StockLatestBarRequest
                 
-                api_key = os.getenv('ALPACA_API_KEY')
-                secret = os.getenv('ALPACA_API_SECRET')
-                
-                if not api_key or not secret:
-                    logger.error("No Alpaca credentials for real trading")
-                    return {'status': algo}
-                
-                trading_client = TradingClient(api_key, secret, paper=True)
                 data_client = StockHistoricalDataClient(api_key, secret)
-                can_trade = True
-                
-                # Get current market price
                 request = StockLatestBarRequest(symbol_or_symbols=[algo['symbol']])
                 bars = data_client.get_stock_latest_bar(request)
                 current_price = float(bars[algo['symbol']].close) if algo['symbol'] in bars else None
@@ -710,24 +692,16 @@ async def get_algorithm_status(algo_id: str):
                             # For stocks, integer shares only
                             qty = max(1, int(position['capital'] / current_price))
                         
-                        if is_crypto:
-                            # Place Coinbase order
-                            order = exchange.create_market_buy_order(algo['symbol'], qty)
-                            order_id = order['id']
-                        else:
-                            # Place Alpaca order
-                            from alpaca.trading.requests import MarketOrderRequest
-                            from alpaca.trading.enums import OrderSide, TimeInForce
-                            
-                            order_request = MarketOrderRequest(
-                                symbol=algo['symbol'],
-                                qty=qty,
-                                side=OrderSide.BUY,
-                                time_in_force=TimeInForce.DAY
-                            )
-                            
-                            order = trading_client.submit_order(order_request)
-                            order_id = order.id
+                        # Alpaca handles both stocks AND crypto with same API!
+                        order_request = MarketOrderRequest(
+                            symbol=algo['symbol'],
+                            qty=qty,
+                            side=OrderSide.BUY,
+                            time_in_force=TimeInForce.GTC  # GTC for crypto (24/7), DAY for stocks
+                        )
+                        
+                        order = trading_client.submit_order(order_request)
+                        order_id = order.id
                         
                         position['status'] = 'trading'
                         position['current_order_id'] = order_id
@@ -762,18 +736,11 @@ async def get_algorithm_status(algo_id: str):
                         
                         # Verify the BUY order is filled before trying to SELL
                         try:
-                            if is_crypto:
-                                # Check Coinbase order status
-                                buy_order = exchange.fetch_order(position['current_order_id'], algo['symbol'])
-                                if buy_order['status'] != 'closed':
-                                    logger.info(f"Position {position['id']} BUY order not filled yet (status: {buy_order['status']})")
-                                    continue  # Wait for fill
-                            else:
-                                # Check Alpaca order status
-                                buy_order = trading_client.get_order_by_id(position['current_order_id'])
-                                if buy_order.status != 'filled':
-                                    logger.info(f"Position {position['id']} BUY order not filled yet (status: {buy_order.status})")
-                                    continue  # Wait for fill
+                            # Alpaca works same for stocks and crypto
+                            buy_order = trading_client.get_order_by_id(position['current_order_id'])
+                            if buy_order.status != 'filled':
+                                logger.info(f"Position {position['id']} BUY order not filled yet (status: {buy_order.status})")
+                                continue  # Wait for fill
                         except Exception as e:
                             logger.warning(f"Could not check order status: {e}")
                             # Continue anyway, might be filled
@@ -786,24 +753,16 @@ async def get_algorithm_status(algo_id: str):
                             should_exit = random.random() > 0.5
                         
                         if should_exit:
-                            if is_crypto:
-                                # Place Coinbase SELL order
-                                order = exchange.create_market_sell_order(algo['symbol'], position['quantity'])
-                                order_id = order['id']
-                            else:
-                                # Place Alpaca SELL order
-                                from alpaca.trading.requests import MarketOrderRequest
-                                from alpaca.trading.enums import OrderSide, TimeInForce
-                                
-                                order_request = MarketOrderRequest(
-                                    symbol=algo['symbol'],
-                                    qty=position['quantity'],
-                                    side=OrderSide.SELL,
-                                    time_in_force=TimeInForce.DAY
-                                )
-                                
-                                order = trading_client.submit_order(order_request)
-                                order_id = order.id
+                            # Alpaca handles both stocks AND crypto with same API!
+                            order_request = MarketOrderRequest(
+                                symbol=algo['symbol'],
+                                qty=position['quantity'],
+                                side=OrderSide.SELL,
+                                time_in_force=TimeInForce.GTC  # GTC for crypto (24/7), DAY for stocks
+                            )
+                            
+                            order = trading_client.submit_order(order_request)
+                            order_id = order.id
                             
                             # Calculate real P&L
                             exit_price = current_price
