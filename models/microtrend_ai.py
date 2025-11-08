@@ -467,10 +467,30 @@ class EnsemblePredictor:
         self.weights.append(weight)
         
     async def predict(self, market_data: Dict) -> Optional[Prediction]:
-        """Get ensemble prediction."""
+        """Get ensemble prediction from market data (can be single symbol or dict of symbols)."""
         if not self.models:
+            self.logger.warning("⚠️ No models in ensemble")
             return None
-            
+        
+        # If market_data is a dict of symbols, iterate through them
+        if market_data and isinstance(market_data, dict):
+            # Check if it's a dict of symbols (has nested dicts with 'symbol' key)
+            first_key = next(iter(market_data.keys()))
+            if isinstance(market_data[first_key], dict) and 'symbol' in market_data[first_key]:
+                # It's a dict of {symbol: data} - predict for each symbol
+                for symbol, data in market_data.items():
+                    prediction = await self._predict_single(data)
+                    if prediction:
+                        return prediction  # Return first valid prediction
+                return None
+            else:
+                # It's a single symbol's data
+                return await self._predict_single(market_data)
+        
+        return None
+    
+    async def _predict_single(self, market_data: Dict) -> Optional[Prediction]:
+        """Get ensemble prediction for a single symbol's market data."""
         predictions = []
         confidences = []
         
