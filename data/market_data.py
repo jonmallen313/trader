@@ -397,8 +397,12 @@ class DataFeedManager:
         self._started = True
         self.logger.info(f"Starting {len(self.feeds)} data feeds")
         
-        tasks = [feed.start() for feed in self.feeds]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Create background tasks instead of awaiting (so autopilot can start)
+        for feed in self.feeds:
+            asyncio.create_task(feed.start())
+        
+        # Give feeds a moment to initialize
+        await asyncio.sleep(0.5)
         
     async def stop_all(self):
         """Stop all data feeds."""
