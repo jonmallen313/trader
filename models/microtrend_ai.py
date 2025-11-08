@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from pathlib import Path
+import pytz
 
 try:
     import pandas as pd
@@ -28,6 +29,29 @@ except ImportError as e:
 
 from src.autopilot import PositionSide
 from config.settings import *
+
+
+def is_market_hours() -> bool:
+    """
+    Check if US stock market is open (9:30 AM - 4:00 PM ET, Mon-Fri).
+    Crypto trades 24/7, but we gate learning to avoid training on noise.
+    """
+    try:
+        et = pytz.timezone('America/New_York')
+        now = datetime.now(et)
+        
+        # Weekend
+        if now.weekday() >= 5:  # Saturday=5, Sunday=6
+            return False
+        
+        # Market hours: 9:30 AM - 4:00 PM ET
+        market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+        market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        
+        return market_open <= now <= market_close
+    except Exception:
+        # Fallback: assume market open to avoid blocking on errors
+        return True
 
 
 @dataclass
@@ -69,6 +93,16 @@ class FeatureEngineer:
                 market_data.get('macd', 0),
                 market_data.get('bb_position', 0.5),
             ]
+            
+            # Add historical context features (day/week/month patterns)
+            features.extend([
+                market_data.get('daily_return', 0),      # Today's performance
+                market_data.get('weekly_return', 0),     # This week's trend
+                market_data.get('monthly_return', 0),    # This month's trend
+                market_data.get('hourly_volatility', 0), # Last hour volatility
+                market_data.get('daily_high_proximity', 0.5),  # How close to daily high
+                market_data.get('daily_low_proximity', 0.5),   # How close to daily low
+            ])
             
             # Add derived features
             sma_5 = market_data.get('sma_5', market_data['current_price'])
@@ -368,6 +402,11 @@ class OnlineLearningModel(MicroTrendModel):
         """Make prediction and learn from result."""
         symbol = market_data.get('symbol', 'UNKNOWN')
         
+        # Skip predictions outside market hours to avoid learning from noise
+        if not is_market_hours():
+            self.logger.debug(f"⏰ Market closed, skipping prediction for {symbol}")
+            return None
+        
         if not self.is_trained:
             self.logger.warning(f"🚫 Model not trained yet for {symbol}")
             return None
@@ -381,17 +420,30 @@ class OnlineLearningModel(MicroTrendModel):
             features = self.feature_engineer.transform(features)
             feature_dict = {f'f_{i}': features[i] for i in range(len(features))}
             
-            # AUTO-LEARN: Train on incoming data with synthetic label (trend direction)
-            # This allows the model to build up knowledge even before real trades
+            # SMART LEARNING: Use historical context instead of noise
+            # Learn from daily/weekly/monthly patterns + hourly volatility
             if self.n_samples < 100:  # Bootstrap phase
-                # Create synthetic label based on recent price momentum
-                price_change = market_data.get('price_change_5', 0)
-                # Learn from EVERY sample during bootstrap to build up grace_period quickly
-                synthetic_label = 2 if price_change > 0 else 0  # 2=bullish, 0=bearish
-                self.model.learn_one(feature_dict, synthetic_label)
-                self.n_samples += 1
-                if self.n_samples % 5 == 1:  # Log every 5th sample
-                    self.logger.info(f"🎓 Bootstrap: {symbol} trained {self.n_samples}/100 samples (grace_period=5)")
+                # Use MULTIPLE timeframe agreement for synthetic label
+                daily_return = market_data.get('daily_return', 0)
+                weekly_return = market_data.get('weekly_return', 0) 
+                hourly_vol = market_data.get('hourly_volatility', 0)
+                
+                # Only learn if we have meaningful signal (not tiny after-hours noise)
+                # Require: hourly volatility > 0.001 (0.1%) AND timeframe agreement
+                if hourly_vol > 0.001:
+                    # Multi-timeframe consensus: day+week must agree
+                    if daily_return > 0.002 and weekly_return > 0:
+                        synthetic_label = 2  # Bullish - uptrend across timeframes
+                        self.model.learn_one(feature_dict, synthetic_label)
+                        self.n_samples += 1
+                    elif daily_return < -0.002 and weekly_return < 0:
+                        synthetic_label = 0  # Bearish - downtrend across timeframes
+                        self.model.learn_one(feature_dict, synthetic_label)
+                        self.n_samples += 1
+                    # Else: conflicting signals, skip learning
+                    
+                    if self.n_samples % 5 == 1:  # Log every 5th sample
+                        self.logger.info(f"🎓 Bootstrap: {symbol} trained {self.n_samples}/100 samples (multi-timeframe learning)")
             
             # Get prediction
             prediction = self.model.predict_one(feature_dict)
@@ -444,8 +496,50 @@ class OnlineLearningModel(MicroTrendModel):
             self.logger.error(f"Online prediction error: {e}", exc_info=True)
             return None
             
-    def learn_from_trade(self, features: Dict, actual_result: str):
-        """Learn from actual trade results."""
+    def learn_from_trade(self, market_data: Dict, pnl: float, side: str):
+        """
+        Learn from actual trade results (live feedback loop).
+        This is the BEST learning signal - real profit/loss outcomes.
+        
+        Args:
+            market_data: Original market data when trade was opened
+            pnl: Realized profit/loss from the trade
+            side: 'long' or 'short' direction of trade
+        """
+        try:
+            features = self.feature_engineer.engineer_features(market_data)
+            if features is None:
+                return
+                
+            features = self.feature_engineer.transform(features)
+            feature_dict = {f'f_{i}': features[i] for i in range(len(features))}
+            
+            # Create label based on ACTUAL trade outcome
+            # Profitable trade → reinforce that direction
+            # Losing trade → learn opposite direction
+            if pnl > 0:  # Winning trade
+                if side == 'long':
+                    label = 2  # Bullish was correct
+                else:
+                    label = 0  # Bearish was correct
+                self.logger.info(f"📈 Learning: WINNING {side} trade (+${pnl:.2f}) - reinforcing pattern")
+            else:  # Losing trade
+                if side == 'long':
+                    label = 0  # Should have been bearish
+                else:
+                    label = 2  # Should have been bullish
+                self.logger.info(f"📉 Learning: LOSING {side} trade (-${abs(pnl):.2f}) - learning correction")
+            
+            # Feed real outcome to model
+            self.model.learn_one(feature_dict, label)
+            self.logger.info(f"✅ Model learned from real trade result: {market_data.get('symbol', 'UNKNOWN')}")
+            
+        except Exception as e:
+            self.logger.error(f"Error learning from trade: {e}")
+
+
+    def learn_from_trade_legacy(self, features: Dict, actual_result: str):
+        """Learn from actual trade results (legacy method)."""
         try:
             engineered_features = self.feature_engineer.engineer_features(features)
             if engineered_features is None:
@@ -601,3 +695,17 @@ class EnsemblePredictor:
                 
             model.load_model(str(model_file))
             self.models.append(model)
+    
+    async def learn_from_trade(self, market_data: Dict, pnl: float, side: str):
+        """
+        Propagate live trade feedback to all models in ensemble.
+        This is the MOST VALUABLE learning signal.
+        """
+        self.logger.info(f"🎓 Ensemble: Learning from trade result: ${pnl:.2f} {side}")
+        
+        for model in self.models:
+            try:
+                if hasattr(model, 'learn_from_trade'):
+                    model.learn_from_trade(market_data, pnl, side)
+            except Exception as e:
+                self.logger.error(f"Error teaching model {model.model_name}: {e}")

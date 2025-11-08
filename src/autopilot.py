@@ -306,6 +306,20 @@ class AutoPilotController:
             self.logger.info(f"Closed position: {position.symbol} {reason} "
                            f"P&L: {position.realized_pnl:.2f}")
             
+            # LIVE FEEDBACK LOOP: Teach AI from actual trade result
+            try:
+                # Get the market data snapshot from when position opened
+                market_data = await self.data_feed.get_latest_data(position.symbol)
+                if market_data and self.predictor:
+                    # Feed the REAL outcome back to the AI
+                    await self.predictor.learn_from_trade(
+                        market_data=market_data,
+                        pnl=position.realized_pnl,
+                        side=position.side.value
+                    )
+            except Exception as e:
+                self.logger.warning(f"Could not update AI from trade result: {e}")
+            
             if self.on_position_closed:
                 self.on_position_closed(position)
                 
