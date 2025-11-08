@@ -181,6 +181,15 @@ class AutoPilotController:
             position_value = self.available_capital * POSITION_SIZE_PCT
             position_size = position_value / current_price
             
+            # Ensure minimum position size (at least 1 share for stocks)
+            if position_size < 1.0 and not signal.symbol.endswith('/USD'):  # Stock, not crypto
+                # Use notional (dollar) amount instead for small positions
+                self.logger.info(f"📊 Position too small ({position_size:.4f} shares), using notional ${position_value:.2f}")
+                position_size = None  # Will use notional instead
+                actual_position_value = position_value
+            else:
+                actual_position_value = position_size * current_price
+            
             # Calculate TP and SL prices
             if signal.side == PositionSide.LONG:
                 tp_price = current_price * (1 + signal.tp_pct)
@@ -193,7 +202,8 @@ class AutoPilotController:
             order_result = await self.exchange.place_order(
                 symbol=signal.symbol,
                 side=signal.side.value,
-                size=position_size,
+                size=position_size if position_size else None,
+                notional=position_value if not position_size else None,  # Use notional if size too small
                 order_type="market"
             )
             

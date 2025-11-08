@@ -271,42 +271,56 @@ class AlpacaBroker(BrokerInterface):
             self.logger.error(f"Error fetching price for {symbol}: {e}")
             raise
             
-    async def place_order(self, symbol: str, side: str, size: float, 
-                         order_type: str = "market", price: float = None) -> OrderResult:
-        """Place order on Alpaca."""
+    async def place_order(self, symbol: str, side: str, size: float = None, 
+                         order_type: str = "market", price: float = None, notional: float = None) -> OrderResult:
+        """Place order on Alpaca. Use either size (shares) or notional (dollars)."""
         try:
-            # Convert size to shares (Alpaca uses shares, not dollar amount)
-            if order_type.lower() == "market":
-                current_price = await self.get_price(symbol)
-                shares = int(size / current_price)
-            else:
-                shares = int(size / price) if price else int(size)
-                
-            if shares < 1:
-                raise ValueError(f"Order too small: {shares} shares")
-                
-            order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
-            
-            if order_type.lower() == "market":
+            # Determine shares to trade
+            if notional:
+                # Notional order - use dollar amount
+                order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
                 order_request = MarketOrderRequest(
                     symbol=symbol,
-                    qty=shares,
+                    notional=notional,  # Use dollar amount
                     side=order_side,
                     time_in_force=TimeInForce.DAY
                 )
-            else:
-                order_request = LimitOrderRequest(
-                    symbol=symbol,
-                    qty=shares,
-                    side=order_side,
-                    time_in_force=TimeInForce.DAY,
-                    limit_price=price
-                )
+                self.logger.info(f"Placing notional order: {symbol} {side} ${notional:.2f}")
+                order = self.client.submit_order(order_request)
                 
-            order = self.client.submit_order(order_request)
-            
-            # Get fill price
-            fill_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
+                # Calculate shares from filled order
+                shares = float(order.qty) if order.qty else 0
+                fill_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
+                
+            elif size:
+                # Size-based order  
+                shares = int(size) if size >= 1 else 1  # Ensure minimum 1 share
+                    
+                if shares < 1:
+                    raise ValueError(f"Order too small: {shares} shares")
+                    
+                order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
+                
+                if order_type.lower() == "market":
+                    order_request = MarketOrderRequest(
+                        symbol=symbol,
+                        qty=shares,
+                        side=order_side,
+                        time_in_force=TimeInForce.DAY
+                    )
+                else:
+                    order_request = LimitOrderRequest(
+                        symbol=symbol,
+                        qty=shares,
+                        side=order_side,
+                        time_in_force=TimeInForce.DAY,
+                        limit_price=price
+                    )
+                    
+                order = self.client.submit_order(order_request)
+                fill_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
+            else:
+                raise ValueError("Must provide either size or notional")
             
             return OrderResult(
                 order_id=str(order.id),
