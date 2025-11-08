@@ -310,10 +310,12 @@ class AlpacaPollingFeed(WebSocketDataFeed):
             return
             
         try:
-            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
             from alpaca.data.requests import StockLatestBarRequest
             
+            # Initialize both stock and crypto clients
             self.data_client = StockHistoricalDataClient(self.api_key, self.secret_key)
+            self.crypto_client = CryptoHistoricalDataClient(self.api_key, self.secret_key)
             self.is_running = True
             
             self.logger.info(f"🔄 Starting Alpaca REST API polling for {len(self.symbols)} symbols (every {self.poll_interval}s)")
@@ -329,13 +331,20 @@ class AlpacaPollingFeed(WebSocketDataFeed):
             
     async def _poll_loop(self):
         """Poll Alpaca REST API continuously."""
-        from alpaca.data.requests import StockLatestBarRequest
+        from alpaca.data.requests import StockLatestBarRequest, CryptoLatestBarRequest
+        
+        # Detect if these are crypto or stock symbols
+        is_crypto = any('/' in sym or 'USD' in sym for sym in self.symbols)
         
         while self.is_running:
             try:
-                # Fetch latest bars for all symbols
-                request = StockLatestBarRequest(symbol_or_symbols=self.symbols)
-                bars = self.data_client.get_stock_latest_bar(request)
+                # Use appropriate API based on symbol type
+                if is_crypto:
+                    request = CryptoLatestBarRequest(symbol_or_symbols=self.symbols)
+                    bars = self.crypto_client.get_crypto_latest_bar(request)
+                else:
+                    request = StockLatestBarRequest(symbol_or_symbols=self.symbols)
+                    bars = self.data_client.get_stock_latest_bar(request)
                 
                 # Process each symbol
                 processed = 0

@@ -264,13 +264,19 @@ class AITradingSystem:
             alpaca_secret = os.getenv('ALPACA_API_SECRET')
             
             if alpaca_key and alpaca_secret:
-                # Use popular stocks AND crypto for trading
+                # Separate stock and crypto feeds (Alpaca has different APIs)
                 stock_symbols = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT']
                 crypto_symbols = ['BTC/USD', 'ETH/USD', 'DOGE/USD', 'LTC/USD', 'AVAX/USD']
-                all_symbols = stock_symbols + crypto_symbols
-                alpaca_feed = AlpacaPollingFeed(all_symbols, alpaca_key, alpaca_secret, poll_interval=5.0)
-                self.data_feed_manager.add_feed(alpaca_feed)
-                self.logger.info(f"✅ Added Alpaca data feed for {len(all_symbols)} symbols ({len(stock_symbols)} stocks, {len(crypto_symbols)} crypto)")
+                
+                # Add stock feed
+                stock_feed = AlpacaPollingFeed(stock_symbols, alpaca_key, alpaca_secret, poll_interval=5.0)
+                self.data_feed_manager.add_feed(stock_feed)
+                
+                # Add crypto feed
+                crypto_feed = AlpacaPollingFeed(crypto_symbols, alpaca_key, alpaca_secret, poll_interval=5.0)
+                self.data_feed_manager.add_feed(crypto_feed)
+                
+                self.logger.info(f"✅ Added Alpaca feeds: {len(stock_symbols)} stocks, {len(crypto_symbols)} crypto")
             else:
                 self.logger.warning("⚠️  No Alpaca API keys - data feeds disabled")
                 self.logger.info("🔑 Add ALPACA_API_KEY and ALPACA_API_SECRET for live data")
