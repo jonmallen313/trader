@@ -25,7 +25,7 @@ API_RATE_LIMIT = os.getenv('API_RATE_LIMIT', 'True').lower() == 'true'
 # Model Settings
 MODEL_RETRAIN_INTERVAL = int(os.getenv('MODEL_RETRAIN_INTERVAL', 100))  # retrain after N trades
 FEATURE_WINDOW_SIZE = int(os.getenv('FEATURE_WINDOW_SIZE', 50))     # number of ticks for features
-PREDICTION_THRESHOLD = float(os.getenv('PREDICTION_THRESHOLD', 0.6))   # confidence threshold for signals
+PREDICTION_THRESHOLD = float(os.getenv('PREDICTION_THRESHOLD', 0.55))   # confidence threshold (lowered for online learning)
 
 # Risk Management
 MAX_DAILY_LOSS = float(os.getenv('MAX_DAILY_LOSS', -100.0))

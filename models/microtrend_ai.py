@@ -334,6 +334,8 @@ class OnlineLearningModel(MicroTrendModel):
         self.preprocessor = preprocessing.StandardScaler()
         self.metric = metrics.Accuracy()
         self.n_samples = 0
+        # Online learning models can start predicting immediately (learns as it goes)
+        self.is_trained = True
         
     def train(self, historical_data: List[Dict]):
         """Initialize with historical data."""
@@ -364,11 +366,13 @@ class OnlineLearningModel(MicroTrendModel):
     def predict(self, market_data: Dict) -> Optional[Prediction]:
         """Make prediction and learn from result."""
         if not self.is_trained:
+            self.logger.warning("🚫 Model not trained yet")
             return None
             
         try:
             features = self.feature_engineer.engineer_features(market_data)
             if features is None:
+                self.logger.debug(f"⚠️ Could not engineer features for {market_data.get('symbol', 'UNKNOWN')}")
                 return None
                 
             features = self.feature_engineer.transform(features)
@@ -377,6 +381,7 @@ class OnlineLearningModel(MicroTrendModel):
             # Get prediction
             prediction = self.model.predict_one(feature_dict)
             if prediction is None:
+                self.logger.debug(f"⚠️ Model returned None for {market_data.get('symbol', 'UNKNOWN')}")
                 return None
                 
             # Get confidence (for ensemble models)
@@ -385,12 +390,25 @@ class OnlineLearningModel(MicroTrendModel):
                 confidence = max(proba_dict.values()) if proba_dict else 0.5
             except:
                 confidence = 0.6  # Default confidence
+            
+            self.n_samples += 1
+            
+            # Log prediction details every 20 predictions
+            if self.n_samples % 20 == 0:
+                self.logger.info(f"📊 {market_data.get('symbol', 'UNKNOWN')}: prediction={prediction}, confidence={confidence:.2%}, threshold={PREDICTION_THRESHOLD:.2%}")
                 
             # Skip neutral predictions or low confidence
-            if prediction == 1 or confidence < PREDICTION_THRESHOLD:
+            if prediction == 1:
+                self.logger.debug(f"⚪ Neutral prediction for {market_data.get('symbol', 'UNKNOWN')}")
+                return None
+                
+            if confidence < PREDICTION_THRESHOLD:
+                self.logger.debug(f"📉 Low confidence ({confidence:.2%}) for {market_data.get('symbol', 'UNKNOWN')}")
                 return None
                 
             side = PositionSide.LONG if prediction == 2 else PositionSide.SHORT
+            
+            self.logger.info(f"✅ TRADE SIGNAL: {market_data.get('symbol', 'UNKNOWN')} {side.value} @ {confidence:.2%} confidence")
             
             return Prediction(
                 symbol=market_data.get('symbol', 'UNKNOWN'),

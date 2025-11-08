@@ -225,24 +225,15 @@ class AITradingSystem:
         """Setup AI prediction models."""
         self.predictor = EnsemblePredictor()
         
-        # Add XGBoost model
-        xgb_model = XGBoostMicroTrend()
-        self.predictor.add_model(xgb_model, weight=1.0)
-        
-        # Add online learning model
+        # Use online learning model (learns as it trades, no pre-training needed)
         online_model = OnlineLearningModel()
-        self.predictor.add_model(online_model, weight=0.5)
+        self.predictor.add_model(online_model, weight=1.0)
         
-        self.logger.info("AI predictor ensemble created")
+        self.logger.info("AI predictor ensemble created with online learning")
         
-        # Try to load pre-trained models
-        models_dir = Path("models/saved")
-        if models_dir.exists():
-            try:
-                self.predictor.load_ensemble(str(models_dir))
-                self.logger.info("Loaded pre-trained models")
-            except Exception as e:
-                self.logger.warning(f"Could not load pre-trained models: {e}")
+        # XGBoost model disabled (requires historical training data)
+        # xgb_model = XGBoostMicroTrend()
+        # self.predictor.add_model(xgb_model, weight=1.0)
     
     async def setup_autopilot(self):
         """Setup the autopilot controller."""
