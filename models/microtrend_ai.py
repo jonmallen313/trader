@@ -429,9 +429,22 @@ class OnlineLearningModel(MicroTrendModel):
                 weekly_return = market_data.get('weekly_return', 0) 
                 hourly_vol = market_data.get('hourly_volatility', 0)
                 
-                # Only learn if we have meaningful signal (not tiny after-hours noise)
-                # Require: hourly volatility > 0.001 (0.1%) AND timeframe agreement
-                if hourly_vol > 0.001:
+                # CRITICAL: Always learn during grace period (first 5 samples)
+                # Otherwise the model will never start predicting
+                if self.n_samples < 5:
+                    # Use simple momentum for grace period
+                    if daily_return > 0:
+                        synthetic_label = 2  # Bullish
+                    elif daily_return < 0:
+                        synthetic_label = 0  # Bearish
+                    else:
+                        synthetic_label = 1  # Neutral
+                    self.model.learn_one(feature_dict, synthetic_label)
+                    self.n_samples += 1
+                    if self.n_samples % 1 == 0:  # Log every sample during grace
+                        self.logger.info(f"🎓 Grace: {symbol} trained {self.n_samples}/5 samples (bootstrap learning)")
+                # After grace period, use more sophisticated learning
+                elif hourly_vol > 0.001:
                     # Multi-timeframe consensus: day+week must agree
                     if daily_return > 0.002 and weekly_return > 0:
                         synthetic_label = 2  # Bullish - uptrend across timeframes
