@@ -1004,26 +1004,26 @@
 <body>
     <!-- Sidebar -->
     <div class="sidebar">
-        <div class="logo">🤖 AI TRADER PRO</div>
+        <div class="logo">AI TRADER PRO</div>
         <div class="nav-menu">
             <div class="nav-item active" onclick="showPage('dashboard')">
-                <span class="nav-icon">📊</span>
+                <span class="nav-icon">■</span>
                 <span>Dashboard</span>
             </div>
             <div class="nav-item" onclick="showPage('browse')">
-                <span class="nav-icon">🔍</span>
+                <span class="nav-icon">▣</span>
                 <span>Browse Stocks</span>
             </div>
             <div class="nav-item" onclick="showPage('lineup')">
-                <span class="nav-icon">⚡</span>
+                <span class="nav-icon">▲</span>
                 <span>Algorithm Lineup</span>
             </div>
             <div class="nav-item" onclick="showPage('builder')">
-                <span class="nav-icon">🛠️</span>
+                <span class="nav-icon">◆</span>
                 <span>Algorithm Builder</span>
             </div>
             <div class="nav-item" onclick="showPage('positions')">
-                <span class="nav-icon">💼</span>
+                <span class="nav-icon">●</span>
                 <span>Active Positions</span>
             </div>
         </div>
@@ -1618,7 +1618,7 @@
                 // Load news (placeholder for now)
                 document.getElementById('stockNews').innerHTML = `
                     <div style="color: var(--text-secondary);">
-                        <p>📰 News integration coming soon. Will show:</p>
+                        <p>News integration coming soon. Will show:</p>
                         <ul style="margin-left: 20px; margin-top: 8px;">
                             <li>Recent company announcements</li>
                             <li>Earnings reports and estimates</li>
@@ -1689,14 +1689,14 @@
                                 </div>
                             </div>
                             <p style="color: var(--text-secondary); margin-top: 8px;">
-                                🤖 AI model analyzing microtrends in real-time. Predictions update every 30 seconds based on price action, volume, and technical indicators.
+                                AI model analyzing microtrends in real-time. Predictions update every 30 seconds based on price action, volume, and technical indicators.
                             </p>
                         </div>
                     `;
                 } else {
                     document.getElementById('aiInsights').innerHTML = `
                         <p style="color: var(--text-secondary);">
-                            ⏳ Collecting data for ${symbol}... AI predictions will appear once sufficient market data is available.
+                            Collecting data for ${symbol}... AI predictions will appear once sufficient market data is available.
                         </p>
                     `;
                 }
@@ -1743,15 +1743,15 @@
                 const result = await response.json();
                 
                 if (response.ok) {
-                    alert(`✅ ${side.toUpperCase()} order placed successfully!\n\nSymbol: ${symbol}\nQty: ${qty}\nType: ${orderType}`);
+                    alert(`${side.toUpperCase()} order placed successfully!\n\nSymbol: ${symbol}\nQty: ${qty}\nType: ${orderType}`);
                     // Refresh positions
                     loadPositions();
                 } else {
-                    alert(`❌ Order failed: ${result.error || 'Unknown error'}`);
+                    alert(`Order failed: ${result.error || 'Unknown error'}`);
                 }
             } catch (error) {
                 console.error('Error placing order:', error);
-                alert(`❌ Order failed: ${error.message}`);
+                alert(`Order failed: ${error.message}`);
             }
         }
         
