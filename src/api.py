@@ -5,6 +5,7 @@ Provides live prices, AI predictions, trading signals, and algorithm management.
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 from typing import Dict, List, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
