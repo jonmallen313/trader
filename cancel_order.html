@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cancel Stuck Order</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #00ff00;
+        }
+        button {
+            background: #ff0000;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin: 10px;
+        }
+        button:hover {
+            background: #cc0000;
+        }
+        .success { color: #00ff00; }
+        .error { color: #ff0000; }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #333;
+            border-radius: 5px;
+            background: #0a0a0a;
+        }
+        .order {
+            padding: 10px;
+            margin: 5px 0;
+            background: #2a2a2a;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚨 Emergency Order Management</h1>
+    
+    <h2>Cancel Stuck Order</h2>
+    <button onclick="cancelStuckOrder()">🗑️ Cancel Order 1fc9808a-2be0-4061-b117-7439fb33159c</button>
+    
+    <h2>List All Orders</h2>
+    <button onclick="listOrders()">📋 Show All Open Orders</button>
+    
+    <div id="result"></div>
+
+    <script>
+        const API_BASE = 'https://web-production-d85a77.up.railway.app/api';
+        
+        async function cancelStuckOrder() {
+            const orderId = '1fc9808a-2be0-4061-b117-7439fb33159c';
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>⏳ Canceling order...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/admin/cancel-order/${orderId}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    resultDiv.innerHTML = `<p class="success">✅ ${data.message}</p>`;
+                } else {
+                    resultDiv.innerHTML = `<p class="error">❌ ${data.message}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        async function listOrders() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>⏳ Fetching orders...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/admin/orders`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    if (data.orders.length === 0) {
+                        resultDiv.innerHTML = '<p class="success">✅ No open orders</p>';
+                    } else {
+                        let html = `<h3>Found ${data.orders.length} open orders:</h3>`;
+                        data.orders.forEach(order => {
+                            html += `
+                                <div class="order">
+                                    <strong>ID:</strong> ${order.id}<br>
+                                    <strong>Symbol:</strong> ${order.symbol}<br>
+                                    <strong>Side:</strong> ${order.side}<br>
+                                    <strong>Qty:</strong> ${order.qty || 'N/A'}<br>
+                                    <strong>Notional:</strong> ${order.notional ? '$' + order.notional : 'N/A'}<br>
+                                    <strong>Status:</strong> ${order.status}<br>
+                                    <strong>Created:</strong> ${order.created_at}
+                                </div>
+                            `;
+                        });
+                        resultDiv.innerHTML = html;
+                    }
+                } else {
+                    resultDiv.innerHTML = `<p class="error">❌ ${data.message}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
