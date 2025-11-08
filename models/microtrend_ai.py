@@ -402,9 +402,10 @@ class OnlineLearningModel(MicroTrendModel):
         """Make prediction and learn from result."""
         symbol = market_data.get('symbol', 'UNKNOWN')
         
-        # Skip predictions outside market hours to avoid learning from noise
-        if not is_market_hours():
-            self.logger.debug(f"⏰ Market closed, skipping prediction for {symbol}")
+        # Skip STOCK predictions outside market hours (crypto trades 24/7)
+        is_crypto = '/' in symbol or 'USD' in symbol  # BTC/USD, ETH/USD, BTCUSD, etc.
+        if not is_crypto and not is_market_hours():
+            self.logger.debug(f"⏰ Market closed, skipping stock prediction for {symbol}")
             return None
         
         if not self.is_trained:

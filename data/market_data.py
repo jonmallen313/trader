@@ -82,11 +82,11 @@ class DataBuffer:
                 
                 # Volume features
                 'volume_sma_5': float(np.mean(volumes[-5:])) if len(volumes) >= 5 else float(volumes[-1]),
-                'volume_ratio': float(volumes[-1] / np.mean(volumes[-10:])) if len(volumes) >= 10 else 1.0,
+                'volume_ratio': float(volumes[-1] / np.mean(volumes[-10:])) if len(volumes) >= 10 and np.mean(volumes[-10:]) > 0 else 1.0,
                 
                 # Spread features
-                'spread_mean': float(np.mean(spreads[-10:])) if len(spreads) >= 10 else float(spreads[-1]),
-                'spread_ratio': float(spreads[-1] / np.mean(spreads[-10:])) if len(spreads) >= 10 else 1.0,
+                'spread_mean': float(np.mean(spreads[-10:])) if len(spreads) >= 10 else float(spreads[-1]) if spreads else 0.0,
+                'spread_ratio': float(spreads[-1] / np.mean(spreads[-10:])) if len(spreads) >= 10 and np.mean(spreads[-10:]) > 0 else 1.0,
                 
                 # Technical indicators
                 'rsi': self._calculate_rsi(prices),
