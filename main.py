@@ -23,8 +23,15 @@ from src.brokers import BrokerManager, BinanceBroker, AlpacaBroker, MockBroker
 from data.market_data import DataFeedManager, BinanceWebSocketFeed, AlpacaPollingFeed
 from models.microtrend_ai import EnsemblePredictor, XGBoostMicroTrend, OnlineLearningModel
 from src.webhook import WebhookServer
-from tests.backtesting import BacktestEngine, PaperTradingMode, TestRunner
 from config.settings import *
+
+# Optional: Import backtesting only if available (not needed for production)
+try:
+    from tests.backtesting import BacktestEngine, PaperTradingMode, TestRunner
+except ImportError:
+    BacktestEngine = None
+    PaperTradingMode = None
+    TestRunner = None
 
 
 class AITradingSystem:

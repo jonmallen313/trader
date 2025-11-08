@@ -32,10 +32,6 @@ railway.json
 railway.toml
 nixpacks.toml
 
-# Tests
-tests/
-test_*.py
-
 # Documentation
 docs/
 *.md
