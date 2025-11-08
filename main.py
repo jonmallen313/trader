@@ -20,7 +20,7 @@ from config.railway import railway_config
 
 from src.autopilot import AutoPilotController, TradingSignal, PositionSide
 from src.brokers import BrokerManager, BinanceBroker, AlpacaBroker, MockBroker
-from data.market_data import DataFeedManager, BinanceWebSocketFeed, AlpacaWebSocketFeed
+from data.market_data import DataFeedManager, BinanceWebSocketFeed, AlpacaPollingFeed
 from models.microtrend_ai import EnsemblePredictor, XGBoostMicroTrend, OnlineLearningModel
 from src.webhook import WebhookServer
 from tests.backtesting import BacktestEngine, PaperTradingMode, TestRunner
@@ -210,7 +210,7 @@ class AITradingSystem:
             if alpaca_key and alpaca_secret:
                 # Use popular stocks for trading
                 stock_symbols = ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT']
-                alpaca_feed = AlpacaWebSocketFeed(stock_symbols, alpaca_key, alpaca_secret)
+                alpaca_feed = AlpacaPollingFeed(stock_symbols, alpaca_key, alpaca_secret, poll_interval=5.0)
                 self.data_feed_manager.add_feed(alpaca_feed)
                 self.logger.info(f"✅ Added Alpaca data feed for {len(stock_symbols)} symbols")
             else:

@@ -284,85 +284,90 @@ class BinanceWebSocketFeed(WebSocketDataFeed):
             self.logger.error(f"Error handling message: {e}")
 
 
-class AlpacaWebSocketFeed(WebSocketDataFeed):
-    """Alpaca websocket data feed for US stock markets."""
+class AlpacaPollingFeed(WebSocketDataFeed):
+    """Alpaca REST API polling feed (no WebSocket connection limits!)."""
     
-    _instance = None  # Singleton to prevent multiple connections
-    _stream = None
-    _stream_running = False  # Track if stream is already running
-    _stream_task = None  # Track the running task
-    
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-    
-    def __init__(self, symbols: List[str], api_key: str, secret_key: str):
-        if hasattr(self, '_initialized'):
-            self.logger.info(f"AlpacaWebSocketFeed already initialized, skipping")
-            return  # Already initialized
+    def __init__(self, symbols: List[str], api_key: str, secret_key: str, poll_interval: float = 5.0):
         super().__init__(symbols)
         self.api_key = api_key
         self.secret_key = secret_key
-        self._initialized = True
+        self.poll_interval = poll_interval
+        self._poll_task = None
         
     async def start(self):
-        """Start Alpaca websocket connection (singleton)."""
-        # Check if already running
-        if self._stream_running:
-            self.logger.info("Alpaca WebSocket already running, skipping duplicate start")
-            return
-            
-        # Check if stream exists and is running
-        if self._stream is not None and self.is_running:
-            self.logger.info("Alpaca WebSocket stream exists and is running")
+        """Start polling Alpaca REST API every N seconds."""
+        if self.is_running:
+            self.logger.info("Alpaca polling already running")
             return
             
         try:
-            from alpaca.data.live import StockDataStream
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockLatestBarRequest
             
+            self.data_client = StockHistoricalDataClient(self.api_key, self.secret_key)
             self.is_running = True
-            self._stream_running = True
             
-            # Create Alpaca stream (only once)
-            if self._stream is None:
-                self._stream = StockDataStream(self.api_key, self.secret_key)
-                # Subscribe to quotes
-                self._stream.subscribe_quotes(self._handle_quote, *self.symbols)
-                self.logger.info(f"Starting Alpaca WebSocket for {len(self.symbols)} symbols")
-            else:
-                self.logger.info("Reusing existing Alpaca WebSocket stream")
+            self.logger.info(f"🔄 Starting Alpaca REST API polling for {len(self.symbols)} symbols (every {self.poll_interval}s)")
             
-            # Run forever (but only one instance)
-            await self._stream._run_forever()
+            # Start polling loop
+            self._poll_task = asyncio.create_task(self._poll_loop())
             
         except ImportError:
             self.logger.error("alpaca-py not installed. Install with: pip install alpaca-py")
-            self._stream_running = False
         except Exception as e:
-            self.logger.error(f"Alpaca connection error: {e}")
+            self.logger.error(f"Alpaca polling startup error: {e}")
             self.is_running = False
-            self._stream_running = False
-            self._stream = None  # Reset on error
             
-    async def _handle_quote(self, quote):
-        """Handle incoming quote data."""
-        try:
-            data_point = MarketDataPoint(
-                symbol=quote.symbol,
-                price=(quote.bid_price + quote.ask_price) / 2,
-                volume=quote.bid_size + quote.ask_size,
-                bid=quote.bid_price,
-                ask=quote.ask_price,
-                timestamp=quote.timestamp
-            )
-            
-            if quote.symbol in self.buffers:
-                self.buffers[quote.symbol].add(data_point)
-                self._notify_callbacks(quote.symbol, data_point)
+    async def _poll_loop(self):
+        """Poll Alpaca REST API continuously."""
+        from alpaca.data.requests import StockLatestBarRequest
+        
+        while self.is_running:
+            try:
+                # Fetch latest bars for all symbols
+                request = StockLatestBarRequest(symbol_or_symbols=self.symbols)
+                bars = self.data_client.get_stock_latest_bar(request)
                 
-        except Exception as e:
-            self.logger.error(f"Error handling quote: {e}")
+                # Process each symbol
+                for symbol in self.symbols:
+                    if symbol in bars:
+                        bar = bars[symbol]
+                        
+                        # Create data point
+                        data_point = MarketDataPoint(
+                            symbol=symbol,
+                            price=float(bar.close),
+                            volume=int(bar.volume),
+                            bid=float(bar.low),  # Approximate bid/ask with low/high
+                            ask=float(bar.high),
+                            timestamp=bar.timestamp if hasattr(bar, 'timestamp') else datetime.now()
+                        )
+                        
+                        # Add to buffer and notify
+                        if symbol in self.buffers:
+                            self.buffers[symbol].add(data_point)
+                            self._notify_callbacks(symbol, data_point)
+                
+                # Log success
+                if len(bars) > 0:
+                    self.logger.debug(f"📊 Polled {len(bars)} symbols from Alpaca")
+                
+            except Exception as e:
+                self.logger.error(f"Polling error: {e}")
+            
+            # Wait before next poll
+            await asyncio.sleep(self.poll_interval)
+    
+    async def stop(self):
+        """Stop the polling loop."""
+        self.is_running = False
+        if self._poll_task:
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+        self.logger.info("Alpaca polling stopped")
 
 
 class DataFeedManager:
