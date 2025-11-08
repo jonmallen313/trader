@@ -51,6 +51,30 @@ async def get_stocks():
     try:
         stocks_data = []
         
+        # Fetch crypto prices from Coinbase (24/7 availability, no geo-restrictions)
+        try:
+            import ccxt
+            exchange = ccxt.coinbase({'enableRateLimit': True})
+            crypto_symbols = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'DOGE/USD', 'AVAX/USD']
+            
+            for symbol in crypto_symbols:
+                try:
+                    ticker = exchange.fetch_ticker(symbol)
+                    stocks_data.append({
+                        'symbol': symbol,
+                        'price': round(ticker['last'], 2),
+                        'change': round(ticker['percentage'], 2) if ticker.get('percentage') else 0.0,
+                        'volume': int(ticker['baseVolume']) if ticker.get('baseVolume') else 0,
+                        'high': round(ticker['high'], 2) if ticker.get('high') else 0,
+                        'low': round(ticker['low'], 2) if ticker.get('low') else 0,
+                        'timestamp': datetime.now().isoformat(),
+                        'type': 'crypto'
+                    })
+                except Exception as e:
+                    logger.warning(f"Error fetching {symbol}: {e}")
+        except Exception as e:
+            logger.error(f"Error initializing Coinbase: {e}")
+        
         # Get data from trading system if available
         if trading_system and trading_system.data_feed_manager:
             for feed in trading_system.data_feed_manager.feeds:
@@ -107,8 +131,8 @@ async def get_stocks():
                                 'timestamp': bar.timestamp.isoformat() if hasattr(bar, 'timestamp') else datetime.now().isoformat()
                             })
                 else:
-                    # No credentials - return demo data
-                    for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT']:
+                    # No credentials - return demo data with crypto
+                    for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT', 'BTC/USD', 'ETH/USD', 'SOL/USD']:
                         stocks_data.append({
                             'symbol': symbol,
                             'price': 0.0,
@@ -119,8 +143,8 @@ async def get_stocks():
                         })
             except Exception as e:
                 logger.error(f"Error fetching Alpaca data: {e}")
-                # Return demo data on error
-                for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT']:
+                # Return demo data on error with crypto
+                for symbol in ['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA', 'AMD', 'MSFT', 'BTC/USD', 'ETH/USD', 'SOL/USD']:
                     stocks_data.append({
                         'symbol': symbol,
                         'price': 0.0,
@@ -466,34 +490,68 @@ async def create_algorithm(algo_config: dict):
 
 @router.post("/algorithms/launch")
 async def launch_algorithm(config: dict):
-    """Launch a REAL live trading algorithm with actual paper trades."""
+    """Launch a REAL live trading algorithm with actual trades (stocks or crypto)."""
     try:
         import os
-        from alpaca.trading.client import TradingClient
-        from alpaca.data.historical import StockHistoricalDataClient
         
         algo_id = f"algo_{datetime.now().timestamp()}"
+        symbol = config.get('symbol')
         
-        # Verify Alpaca connection
-        api_key = os.getenv('ALPACA_API_KEY')
-        secret = os.getenv('ALPACA_API_SECRET')
+        # Determine if crypto or stock based on symbol format
+        is_crypto = '/' in symbol  # Crypto symbols have format like BTC/USDT
         
-        if not api_key or not secret:
-            return {'success': False, 'error': 'Alpaca API credentials not configured'}
-        
-        # Initialize real trading client
-        trading_client = TradingClient(api_key, secret, paper=True)
-        
-        # Verify account has sufficient capital
-        account = trading_client.get_account()
-        available_cash = float(account.cash)
-        
-        if available_cash < config.get('capital'):
-            return {'success': False, 'error': f'Insufficient capital. Available: ${available_cash:.2f}'}
+        if is_crypto:
+            # Use Coinbase for crypto trading (24/7 market, no geo-restrictions)
+            import ccxt
+            
+            api_key = os.getenv('COINBASE_API_KEY')
+            secret = os.getenv('COINBASE_API_SECRET')
+            
+            if not api_key or not secret:
+                return {'success': False, 'error': 'Coinbase API credentials not configured. Add COINBASE_API_KEY and COINBASE_API_SECRET to Railway.'}
+            
+            # Verify Coinbase connection
+            exchange = ccxt.coinbase({
+                'apiKey': api_key,
+                'secret': secret,
+                'enableRateLimit': True,
+            })
+            
+            # Check balance
+            balance = exchange.fetch_balance()
+            available_usd = float(balance.get('USD', {}).get('free', 0.0))
+            
+            if available_usd < config.get('capital'):
+                return {'success': False, 'error': f'Insufficient USD. Available: ${available_usd:.2f}'}
+            
+            is_real_trading = True
+            logger.info(f"Real Coinbase trading enabled for {symbol}")
+        else:
+            # Use Alpaca for stock trading
+            from alpaca.trading.client import TradingClient
+            
+            api_key = os.getenv('ALPACA_API_KEY')
+            secret = os.getenv('ALPACA_API_SECRET')
+            
+            if not api_key or not secret:
+                return {'success': False, 'error': 'Alpaca API credentials not configured'}
+            
+            # Initialize real trading client
+            trading_client = TradingClient(api_key, secret, paper=True)
+            
+            # Verify account has sufficient capital
+            account = trading_client.get_account()
+            available_cash = float(account.cash)
+            
+            if available_cash < config.get('capital'):
+                return {'success': False, 'error': f'Insufficient capital. Available: ${available_cash:.2f}'}
+            
+            is_real_trading = True
+            logger.info(f"Real Alpaca trading enabled for {symbol}")
         
         algorithm = {
             'id': algo_id,
-            'symbol': config.get('symbol'),
+            'symbol': symbol,
             'capital': config.get('capital'),
             'splits': config.get('splits'),
             'take_profit': config.get('take_profit'),
@@ -510,7 +568,8 @@ async def launch_algorithm(config: dict):
             'alpaca_orders': [],  # Track real Alpaca order IDs
             'started_at': datetime.now().isoformat(),
             'completed': False,
-            'real_trading': True  # Flag for real trading mode
+            'real_trading': is_real_trading,  # Flag for real trading mode
+            'is_crypto': is_crypto  # Flag to identify crypto vs stock
         }
         
         # Initialize position tracking for real trades
@@ -533,7 +592,9 @@ async def launch_algorithm(config: dict):
         
         algorithms[algo_id] = algorithm
         
-        logger.info(f"REAL TRADING Algorithm {algo_id} launched for {algorithm['symbol']} with ${algorithm['capital']} capital")
+        trading_mode = "REAL" if is_real_trading else "SIMULATED"
+        market_type = "Crypto" if is_crypto else "Stock"
+        logger.info(f"{trading_mode} {market_type} Algorithm {algo_id} launched for {algorithm['symbol']} with ${algorithm['capital']} capital")
         
         return {'success': True, 'algorithm': algorithm}
     
@@ -543,15 +604,10 @@ async def launch_algorithm(config: dict):
 
 @router.get("/algorithms/{algo_id}/status")
 async def get_algorithm_status(algo_id: str):
-    """Get live status and execute REAL paper trades."""
+    """Get live status and execute REAL trades (stocks via Alpaca or crypto via Binance)."""
     try:
         import os
         import random
-        from alpaca.trading.client import TradingClient
-        from alpaca.trading.requests import MarketOrderRequest
-        from alpaca.trading.enums import OrderSide, TimeInForce
-        from alpaca.data.historical import StockHistoricalDataClient
-        from alpaca.data.requests import StockLatestBarRequest
         
         if algo_id not in algorithms:
             return {'error': 'Algorithm not found'}
@@ -563,31 +619,68 @@ async def get_algorithm_status(algo_id: str):
         
         # Check if this is real trading mode
         is_real_trading = algo.get('real_trading', False)
+        is_crypto = algo.get('is_crypto', False)
         
         if not is_real_trading:
             # Fallback to simulated trading if not in real mode
             return await get_simulated_algo_status(algo_id, algo)
         
-        # REAL TRADING MODE - Execute actual paper trades
+        # REAL TRADING MODE
         try:
-            api_key = os.getenv('ALPACA_API_KEY')
-            secret = os.getenv('ALPACA_API_SECRET')
-            
-            if not api_key or not secret:
-                logger.error("No Alpaca credentials for real trading")
-                return {'status': algo}
-            
-            trading_client = TradingClient(api_key, secret, paper=True)
-            data_client = StockHistoricalDataClient(api_key, secret)
-            
-            # Get current market price
-            request = StockLatestBarRequest(symbol_or_symbols=[algo['symbol']])
-            bars = data_client.get_stock_latest_bar(request)
-            current_price = float(bars[algo['symbol']].close) if algo['symbol'] in bars else None
+            if is_crypto:
+                # CRYPTO TRADING via Coinbase
+                import ccxt
+                
+                api_key = os.getenv('COINBASE_API_KEY')
+                secret = os.getenv('COINBASE_API_SECRET')
+                
+                if not api_key or not secret:
+                    logger.error("No Coinbase credentials - cannot execute real trades")
+                    return {'status': algo, 'error': 'Missing Coinbase API credentials'}
+                
+                # Initialize exchange for REAL trading
+                exchange = ccxt.coinbase({
+                    'apiKey': api_key,
+                    'secret': secret,
+                    'enableRateLimit': True,
+                })
+                can_trade = True
+                
+                # Get current market price
+                ticker = exchange.fetch_ticker(algo['symbol'])
+                current_price = float(ticker['last'])
+                
+            else:
+                # STOCK TRADING via Alpaca
+                from alpaca.trading.client import TradingClient
+                from alpaca.trading.requests import MarketOrderRequest
+                from alpaca.trading.enums import OrderSide, TimeInForce
+                from alpaca.data.historical import StockHistoricalDataClient
+                from alpaca.data.requests import StockLatestBarRequest
+                
+                api_key = os.getenv('ALPACA_API_KEY')
+                secret = os.getenv('ALPACA_API_SECRET')
+                
+                if not api_key or not secret:
+                    logger.error("No Alpaca credentials for real trading")
+                    return {'status': algo}
+                
+                trading_client = TradingClient(api_key, secret, paper=True)
+                data_client = StockHistoricalDataClient(api_key, secret)
+                can_trade = True
+                
+                # Get current market price
+                request = StockLatestBarRequest(symbol_or_symbols=[algo['symbol']])
+                bars = data_client.get_stock_latest_bar(request)
+                current_price = float(bars[algo['symbol']].close) if algo['symbol'] in bars else None
             
             if not current_price:
                 logger.warning(f"Could not get price for {algo['symbol']}")
                 return {'status': algo}
+            
+            # NO MORE SIMULATED TRADING - Only real trades!
+            if not can_trade:
+                return {'status': algo, 'error': 'API credentials required for real trading'}
             
             # Check each position and execute real trades
             for position in algo['positions']:
@@ -595,26 +688,42 @@ async def get_algorithm_status(algo_id: str):
                 if position['status'] == 'ready' and random.random() > 0.3:
                     try:
                         # Calculate quantity based on position capital
-                        qty = max(1, int(position['capital'] / current_price))
+                        if is_crypto:
+                            # For crypto, calculate based on asset price
+                            qty = position['capital'] / current_price
+                            qty = round(qty, 6)  # Crypto allows decimals
+                        else:
+                            # For stocks, integer shares only
+                            qty = max(1, int(position['capital'] / current_price))
                         
-                        # Place REAL market order
-                        order_request = MarketOrderRequest(
-                            symbol=algo['symbol'],
-                            qty=qty,
-                            side=OrderSide.BUY,
-                            time_in_force=TimeInForce.DAY
-                        )
-                        
-                        order = trading_client.submit_order(order_request)
+                        if is_crypto:
+                            # Place Coinbase order
+                            order = exchange.create_market_buy_order(algo['symbol'], qty)
+                            order_id = order['id']
+                        else:
+                            # Place Alpaca order
+                            from alpaca.trading.requests import MarketOrderRequest
+                            from alpaca.trading.enums import OrderSide, TimeInForce
+                            
+                            order_request = MarketOrderRequest(
+                                symbol=algo['symbol'],
+                                qty=qty,
+                                side=OrderSide.BUY,
+                                time_in_force=TimeInForce.DAY
+                            )
+                            
+                            order = trading_client.submit_order(order_request)
+                            order_id = order.id
                         
                         position['status'] = 'trading'
-                        position['current_order_id'] = order.id
+                        position['current_order_id'] = order_id
                         position['entry_price'] = current_price
                         position['quantity'] = qty
                         position['entry_time'] = datetime.now()  # Track entry time
                         position['trades_count'] += 1
                         
-                        logger.info(f"REAL TRADE OPENED: {algo['symbol']} {qty} shares @ ${current_price:.2f} (Order: {order.id})")
+                        asset_type = "crypto" if is_crypto else "shares"
+                        logger.info(f"REAL TRADE OPENED: {algo['symbol']} {qty} {asset_type} @ ${current_price:.2f} (Order: {order_id})")
                         
                     except Exception as e:
                         logger.error(f"Error opening position: {e}")
@@ -639,10 +748,18 @@ async def get_algorithm_status(algo_id: str):
                         
                         # Verify the BUY order is filled before trying to SELL
                         try:
-                            buy_order = trading_client.get_order_by_id(position['current_order_id'])
-                            if buy_order.status != 'filled':
-                                logger.info(f"Position {position['id']} BUY order not filled yet (status: {buy_order.status})")
-                                continue  # Wait for fill
+                            if is_crypto:
+                                # Check Coinbase order status
+                                buy_order = exchange.fetch_order(position['current_order_id'], algo['symbol'])
+                                if buy_order['status'] != 'closed':
+                                    logger.info(f"Position {position['id']} BUY order not filled yet (status: {buy_order['status']})")
+                                    continue  # Wait for fill
+                            else:
+                                # Check Alpaca order status
+                                buy_order = trading_client.get_order_by_id(position['current_order_id'])
+                                if buy_order.status != 'filled':
+                                    logger.info(f"Position {position['id']} BUY order not filled yet (status: {buy_order.status})")
+                                    continue  # Wait for fill
                         except Exception as e:
                             logger.warning(f"Could not check order status: {e}")
                             # Continue anyway, might be filled
@@ -655,15 +772,24 @@ async def get_algorithm_status(algo_id: str):
                             should_exit = random.random() > 0.5
                         
                         if should_exit:
-                            # Place REAL sell order
-                            order_request = MarketOrderRequest(
-                                symbol=algo['symbol'],
-                                qty=position['quantity'],
-                                side=OrderSide.SELL,
-                                time_in_force=TimeInForce.DAY
-                            )
-                            
-                            order = trading_client.submit_order(order_request)
+                            if is_crypto:
+                                # Place Coinbase SELL order
+                                order = exchange.create_market_sell_order(algo['symbol'], position['quantity'])
+                                order_id = order['id']
+                            else:
+                                # Place Alpaca SELL order
+                                from alpaca.trading.requests import MarketOrderRequest
+                                from alpaca.trading.enums import OrderSide, TimeInForce
+                                
+                                order_request = MarketOrderRequest(
+                                    symbol=algo['symbol'],
+                                    qty=position['quantity'],
+                                    side=OrderSide.SELL,
+                                    time_in_force=TimeInForce.DAY
+                                )
+                                
+                                order = trading_client.submit_order(order_request)
+                                order_id = order.id
                             
                             # Calculate real P&L
                             exit_price = current_price
@@ -678,7 +804,7 @@ async def get_algorithm_status(algo_id: str):
                                 'entry_price': round(entry_price, 2),
                                 'exit_price': round(exit_price, 2),
                                 'pnl': round(trade_pnl, 2),
-                                'order_id': order.id,
+                                'order_id': order_id,
                                 'timestamp': datetime.now().isoformat(),
                                 'real_trade': True
                             }
@@ -687,7 +813,7 @@ async def get_algorithm_status(algo_id: str):
                             algo['recent_trades'] = algo['recent_trades'][:10]
                             algo['all_trades'].append(trade)
                             algo['pnl'] += trade_pnl
-                            algo['alpaca_orders'].append(order.id)
+                            algo['alpaca_orders'].append(order_id)
                             
                             # Reset position to ready
                             position['status'] = 'ready'
