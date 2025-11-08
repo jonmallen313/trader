@@ -366,14 +366,16 @@ class OnlineLearningModel(MicroTrendModel):
             
     def predict(self, market_data: Dict) -> Optional[Prediction]:
         """Make prediction and learn from result."""
+        symbol = market_data.get('symbol', 'UNKNOWN')
+        
         if not self.is_trained:
-            self.logger.warning("🚫 Model not trained yet")
+            self.logger.warning(f"🚫 Model not trained yet for {symbol}")
             return None
             
         try:
             features = self.feature_engineer.engineer_features(market_data)
             if features is None:
-                self.logger.debug(f"⚠️ Could not engineer features for {market_data.get('symbol', 'UNKNOWN')}")
+                self.logger.info(f"⚠️ Could not engineer features for {symbol} - missing data")
                 return None
                 
             features = self.feature_engineer.transform(features)
@@ -387,13 +389,16 @@ class OnlineLearningModel(MicroTrendModel):
                 if abs(price_change) > 0.001:  # Only learn from meaningful moves
                     synthetic_label = 2 if price_change > 0 else 0  # 2=bullish, 0=bearish
                     self.model.learn_one(feature_dict, synthetic_label)
-                    if self.n_samples % 10 == 0:
-                        self.logger.info(f"🎓 Bootstrap learning: {self.n_samples} samples trained")
+                    self.n_samples += 1
+                    if self.n_samples % 5 == 1:  # Log every 5th sample
+                        self.logger.info(f"🎓 Bootstrap: {symbol} trained {self.n_samples}/100 samples (grace_period check at 5)")
             
             # Get prediction
             prediction = self.model.predict_one(feature_dict)
+            
             if prediction is None:
-                self.logger.debug(f"⚠️ Model returned None for {market_data.get('symbol', 'UNKNOWN')}")
+                self.logger.info(f"🤔 River model returned None for {symbol} (probably waiting for grace_period=5 samples)")
+                return None
                 return None
                 
             # Get confidence (for ensemble models)
