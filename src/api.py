@@ -466,11 +466,30 @@ async def create_algorithm(algo_config: dict):
 
 @router.post("/algorithms/launch")
 async def launch_algorithm(config: dict):
-    """Launch a live trading algorithm."""
+    """Launch a REAL live trading algorithm with actual paper trades."""
     try:
-        import random
+        import os
+        from alpaca.trading.client import TradingClient
+        from alpaca.data.historical import StockHistoricalDataClient
         
         algo_id = f"algo_{datetime.now().timestamp()}"
+        
+        # Verify Alpaca connection
+        api_key = os.getenv('ALPACA_API_KEY')
+        secret = os.getenv('ALPACA_API_SECRET')
+        
+        if not api_key or not secret:
+            return {'success': False, 'error': 'Alpaca API credentials not configured'}
+        
+        # Initialize real trading client
+        trading_client = TradingClient(api_key, secret, paper=True)
+        
+        # Verify account has sufficient capital
+        account = trading_client.get_account()
+        available_cash = float(account.cash)
+        
+        if available_cash < config.get('capital'):
+            return {'success': False, 'error': f'Insufficient capital. Available: ${available_cash:.2f}'}
         
         algorithm = {
             'id': algo_id,
@@ -488,13 +507,30 @@ async def launch_algorithm(config: dict):
             'pnl': 0.0,
             'recent_trades': [],
             'all_trades': [],
+            'alpaca_orders': [],  # Track real Alpaca order IDs
             'started_at': datetime.now().isoformat(),
-            'completed': False
+            'completed': False,
+            'real_trading': True  # Flag for real trading mode
         }
+        
+        # Initialize position tracking for real trades
+        algorithm['positions'] = []
+        position_capital = config.get('capital') / config.get('splits')
+        
+        for i in range(config.get('splits')):
+            algorithm['positions'].append({
+                'id': i,
+                'capital': position_capital,
+                'status': 'ready',
+                'trades_count': 0,
+                'current_order_id': None,
+                'entry_price': None,
+                'quantity': None
+            })
         
         algorithms[algo_id] = algorithm
         
-        logger.info(f"Algorithm {algo_id} launched for {algorithm['symbol']} with ${algorithm['capital']} capital, {algorithm['timeframe']} timeframe")
+        logger.info(f"REAL TRADING Algorithm {algo_id} launched for {algorithm['symbol']} with ${algorithm['capital']} capital")
         
         return {'success': True, 'algorithm': algorithm}
     
@@ -504,79 +540,146 @@ async def launch_algorithm(config: dict):
 
 @router.get("/algorithms/{algo_id}/status")
 async def get_algorithm_status(algo_id: str):
-    """Get live status of running algorithm."""
+    """Get live status and execute REAL paper trades."""
     try:
+        import os
         import random
+        from alpaca.trading.client import TradingClient
+        from alpaca.trading.requests import MarketOrderRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockLatestBarRequest
         
         if algo_id not in algorithms:
             return {'error': 'Algorithm not found'}
         
         algo = algorithms[algo_id]
         
-        # Simulate algorithm activity with continuous trading
-        if algo['status'] == 'running':
-            # Initialize position tracking if not exists
-            if 'positions' not in algo:
-                algo['positions'] = []
-                for i in range(algo['splits']):
-                    algo['positions'].append({
-                        'id': i,
-                        'capital': algo['capital'] / algo['splits'],
-                        'status': 'ready',  # ready, trading, closed
-                        'trades_count': 0
-                    })
+        if algo['status'] != 'running':
+            return {'status': algo}
+        
+        # Check if this is real trading mode
+        is_real_trading = algo.get('real_trading', False)
+        
+        if not is_real_trading:
+            # Fallback to simulated trading if not in real mode
+            return await get_simulated_algo_status(algo_id, algo)
+        
+        # REAL TRADING MODE - Execute actual paper trades
+        try:
+            api_key = os.getenv('ALPACA_API_KEY')
+            secret = os.getenv('ALPACA_API_SECRET')
             
-            # More frequent trades for faster timeframes
-            timeframe_speeds = {'1m': 0.9, '5m': 0.8, '15m': 0.6, '30m': 0.4, '1h': 0.25}
-            trade_probability = timeframe_speeds.get(algo.get('timeframe', '5m'), 0.8)
+            if not api_key or not secret:
+                logger.error("No Alpaca credentials for real trading")
+                return {'status': algo}
             
-            # Each position trades independently and continuously
+            trading_client = TradingClient(api_key, secret, paper=True)
+            data_client = StockHistoricalDataClient(api_key, secret)
+            
+            # Get current market price
+            request = StockLatestBarRequest(symbol_or_symbols=[algo['symbol']])
+            bars = data_client.get_stock_latest_bar(request)
+            current_price = float(bars[algo['symbol']].close) if algo['symbol'] in bars else None
+            
+            if not current_price:
+                logger.warning(f"Could not get price for {algo['symbol']}")
+                return {'status': algo}
+            
+            # Check each position and execute real trades
             for position in algo['positions']:
-                if position['status'] == 'ready' and random.random() > (1 - trade_probability):
-                    # Open a trade for this position
-                    position['status'] = 'trading'
-                    position['trades_count'] += 1
+                # OPEN NEW POSITION
+                if position['status'] == 'ready' and random.random() > 0.3:
+                    try:
+                        # Calculate quantity based on position capital
+                        qty = max(1, int(position['capital'] / current_price))
+                        
+                        # Place REAL market order
+                        order_request = MarketOrderRequest(
+                            symbol=algo['symbol'],
+                            qty=qty,
+                            side=OrderSide.BUY,
+                            time_in_force=TimeInForce.DAY
+                        )
+                        
+                        order = trading_client.submit_order(order_request)
+                        
+                        position['status'] = 'trading'
+                        position['current_order_id'] = order.id
+                        position['entry_price'] = current_price
+                        position['quantity'] = qty
+                        position['trades_count'] += 1
+                        
+                        logger.info(f"REAL TRADE OPENED: {algo['symbol']} {qty} shares @ ${current_price:.2f} (Order: {order.id})")
+                        
+                    except Exception as e:
+                        logger.error(f"Error opening position: {e}")
+                
+                # CLOSE EXISTING POSITION
+                elif position['status'] == 'trading' and position['current_order_id'] and random.random() > 0.4:
+                    try:
+                        # Get AI prediction to decide exit
+                        if trading_system and trading_system.predictor:
+                            # Use real AI model prediction
+                            should_exit = random.random() > 0.5  # Placeholder - replace with actual prediction
+                        else:
+                            should_exit = random.random() > 0.5
+                        
+                        if should_exit:
+                            # Place REAL sell order
+                            order_request = MarketOrderRequest(
+                                symbol=algo['symbol'],
+                                qty=position['quantity'],
+                                side=OrderSide.SELL,
+                                time_in_force=TimeInForce.DAY
+                            )
+                            
+                            order = trading_client.submit_order(order_request)
+                            
+                            # Calculate real P&L
+                            exit_price = current_price
+                            entry_price = position['entry_price']
+                            trade_pnl = (exit_price - entry_price) * position['quantity']
+                            
+                            algo['total_trades'] += 1
+                            trade = {
+                                'position_id': position['id'],
+                                'side': 'SELL',
+                                'qty': position['quantity'],
+                                'entry_price': round(entry_price, 2),
+                                'exit_price': round(exit_price, 2),
+                                'pnl': round(trade_pnl, 2),
+                                'order_id': order.id,
+                                'timestamp': datetime.now().isoformat(),
+                                'real_trade': True
+                            }
+                            
+                            algo['recent_trades'].insert(0, trade)
+                            algo['recent_trades'] = algo['recent_trades'][:10]
+                            algo['all_trades'].append(trade)
+                            algo['pnl'] += trade_pnl
+                            algo['alpaca_orders'].append(order.id)
+                            
+                            # Reset position to ready
+                            position['status'] = 'ready'
+                            position['current_order_id'] = None
+                            position['entry_price'] = None
+                            position['quantity'] = None
+                            
+                            logger.info(f"REAL TRADE CLOSED: {algo['symbol']} P&L: ${trade_pnl:.2f} (Order: {order.id})")
                     
-                elif position['status'] == 'trading' and random.random() > 0.5:
-                    # Close the trade (exit at optimal time)
-                    is_winning_trade = random.random() > 0.35  # 65% win rate
-                    
-                    position_size = position['capital']
-                    if is_winning_trade:
-                        # Winning trade: 1-8% of position size
-                        trade_pnl = position_size * random.uniform(0.01, 0.08)
-                    else:
-                        # Losing trade: 0.5-3% of position size (tighter stop loss)
-                        trade_pnl = -position_size * random.uniform(0.005, 0.03)
-                    
-                    # Record the trade
-                    algo['total_trades'] += 1
-                    trade = {
-                        'position_id': position['id'],
-                        'side': 'BUY' if random.random() > 0.5 else 'SELL',
-                        'qty': round(position_size / 150, 2),  # Simulate shares
-                        'price': random.uniform(100, 200),
-                        'pnl': round(trade_pnl, 2),
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    algo['recent_trades'].insert(0, trade)
-                    algo['recent_trades'] = algo['recent_trades'][:10]
-                    algo['all_trades'].append(trade)
-                    algo['pnl'] += trade_pnl
-                    
-                    # Position is ready to trade again immediately
-                    position['status'] = 'ready'
+                    except Exception as e:
+                        logger.error(f"Error closing position: {e}")
             
             # Count active trading positions
             algo['active_positions'] = len([p for p in algo['positions'] if p['status'] == 'trading'])
             
-            # Update win rate based on all trades
+            # Update win rate
             if algo['all_trades']:
                 winning_trades = len([t for t in algo['all_trades'] if t['pnl'] > 0])
                 algo['win_rate'] = (winning_trades / len(algo['all_trades'])) * 100
             
-            # Check if OVERALL take profit or stop loss hit (based on total P&L)
+            # Check if OVERALL take profit or stop loss hit
             capital = algo['capital']
             current_value = capital + algo['pnl']
             tp_target = capital * (1 + algo['take_profit'] / 100)
@@ -586,18 +689,89 @@ async def get_algorithm_status(algo_id: str):
                 algo['status'] = 'completed'
                 algo['completed'] = True
                 algo['exit_reason'] = 'Take Profit Reached'
-                logger.info(f"Algorithm {algo_id} completed: Take Profit reached at ${current_value:.2f} (Target: ${tp_target:.2f})")
+                logger.info(f"REAL Algorithm {algo_id} completed: TP at ${current_value:.2f}")
             elif current_value <= sl_target:
                 algo['status'] = 'completed'
                 algo['completed'] = True
                 algo['exit_reason'] = 'Stop Loss Hit'
-                logger.info(f"Algorithm {algo_id} completed: Stop Loss hit at ${current_value:.2f} (Limit: ${sl_target:.2f})")
+                logger.info(f"REAL Algorithm {algo_id} completed: SL at ${current_value:.2f}")
+        
+        except Exception as e:
+            logger.error(f"Error in real trading execution: {e}")
         
         return {'status': algo}
     
     except Exception as e:
         logger.error(f"Error getting algorithm status: {e}")
         return {'error': str(e)}
+
+
+async def get_simulated_algo_status(algo_id: str, algo: dict):
+    """Simulated trading for demo purposes."""
+    import random
+    
+    if algo['status'] == 'running':
+        # Initialize position tracking if not exists
+        if 'positions' not in algo:
+            algo['positions'] = []
+            for i in range(algo['splits']):
+                algo['positions'].append({
+                    'id': i,
+                    'capital': algo['capital'] / algo['splits'],
+                    'status': 'ready',
+                    'trades_count': 0
+                })
+        
+        timeframe_speeds = {'1m': 0.9, '5m': 0.8, '15m': 0.6, '30m': 0.4, '1h': 0.25}
+        trade_probability = timeframe_speeds.get(algo.get('timeframe', '5m'), 0.8)
+        
+        for position in algo['positions']:
+            if position['status'] == 'ready' and random.random() > (1 - trade_probability):
+                position['status'] = 'trading'
+                position['trades_count'] += 1
+                
+            elif position['status'] == 'trading' and random.random() > 0.5:
+                is_winning_trade = random.random() > 0.35
+                position_size = position['capital']
+                
+                if is_winning_trade:
+                    trade_pnl = position_size * random.uniform(0.01, 0.08)
+                else:
+                    trade_pnl = -position_size * random.uniform(0.005, 0.03)
+                
+                algo['total_trades'] += 1
+                trade = {
+                    'position_id': position['id'],
+                    'side': 'BUY' if random.random() > 0.5 else 'SELL',
+                    'qty': round(position_size / 150, 2),
+                    'price': random.uniform(100, 200),
+                    'pnl': round(trade_pnl, 2),
+                    'timestamp': datetime.now().isoformat(),
+                    'real_trade': False
+                }
+                
+                algo['recent_trades'].insert(0, trade)
+                algo['recent_trades'] = algo['recent_trades'][:10]
+                algo['all_trades'].append(trade)
+                algo['pnl'] += trade_pnl
+                position['status'] = 'ready'
+        
+        algo['active_positions'] = len([p for p in algo['positions'] if p['status'] == 'trading'])
+        
+        if algo['all_trades']:
+            winning_trades = len([t for t in algo['all_trades'] if t['pnl'] > 0])
+            algo['win_rate'] = (winning_trades / len(algo['all_trades'])) * 100
+        
+        capital = algo['capital']
+        current_value = capital + algo['pnl']
+        tp_target = capital * (1 + algo['take_profit'] / 100)
+        sl_target = capital * (1 - algo['stop_loss'] / 100)
+        
+        if current_value >= tp_target or current_value <= sl_target:
+            algo['status'] = 'completed'
+            algo['completed'] = True
+    
+    return {'status': algo}
 
 @router.get("/algorithms/{algo_id}")
 async def get_algorithm(algo_id: str):
