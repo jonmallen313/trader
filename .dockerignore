@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Railway
+railway.json
+railway.toml
+nixpacks.toml
+
+# Tests
+tests/
+test_*.py
+
+# Documentation
+docs/
+*.md
+README.md
+
+# Other
+.railway-trigger
+cancel_order.html
+deploy-railway.sh
