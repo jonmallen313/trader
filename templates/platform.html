@@ -75,25 +75,45 @@
             align-items: center;
             gap: 12px;
             color: var(--text-secondary);
-            border: 1px solid transparent;
+            border-left: 3px solid transparent;
+            position: relative;
         }
         
         .nav-item:hover {
             background: var(--bg-card);
             color: var(--text-primary);
-            border-color: var(--accent-cyan);
             box-shadow: 0 0 15px rgba(0, 255, 247, 0.2);
         }
         
         .nav-item.active {
             background: linear-gradient(90deg, rgba(0, 255, 247, 0.1), transparent);
             color: var(--accent-cyan);
-            border-left: 2px solid var(--accent-cyan);
             box-shadow: 0 0 20px rgba(0, 255, 247, 0.3);
         }
         
+        /* Different LED colors for each nav item */
+        .nav-item:nth-child(1) { border-left-color: var(--accent-cyan); }
+        .nav-item:nth-child(1).active { border-left-color: var(--accent-cyan); box-shadow: 0 0 20px rgba(0, 255, 247, 0.4); }
+        .nav-item:nth-child(1):hover { border-left-color: var(--accent-cyan); box-shadow: 0 0 15px rgba(0, 255, 247, 0.3); }
+        
+        .nav-item:nth-child(2) { border-left-color: var(--accent-purple); }
+        .nav-item:nth-child(2).active { border-left-color: var(--accent-purple); box-shadow: 0 0 20px rgba(168, 85, 247, 0.4); color: var(--accent-purple); background: linear-gradient(90deg, rgba(168, 85, 247, 0.1), transparent); }
+        .nav-item:nth-child(2):hover { border-left-color: var(--accent-purple); box-shadow: 0 0 15px rgba(168, 85, 247, 0.3); }
+        
+        .nav-item:nth-child(3) { border-left-color: var(--accent-green); }
+        .nav-item:nth-child(3).active { border-left-color: var(--accent-green); box-shadow: 0 0 20px rgba(16, 185, 129, 0.4); color: var(--accent-green); background: linear-gradient(90deg, rgba(16, 185, 129, 0.1), transparent); }
+        .nav-item:nth-child(3):hover { border-left-color: var(--accent-green); box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); }
+        
+        .nav-item:nth-child(4) { border-left-color: #fbbf24; }
+        .nav-item:nth-child(4).active { border-left-color: #fbbf24; box-shadow: 0 0 20px rgba(251, 191, 36, 0.4); color: #fbbf24; background: linear-gradient(90deg, rgba(251, 191, 36, 0.1), transparent); }
+        .nav-item:nth-child(4):hover { border-left-color: #fbbf24; box-shadow: 0 0 15px rgba(251, 191, 36, 0.3); }
+        
+        .nav-item:nth-child(5) { border-left-color: var(--accent-red); }
+        .nav-item:nth-child(5).active { border-left-color: var(--accent-red); box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); color: var(--accent-red); background: linear-gradient(90deg, rgba(239, 68, 68, 0.1), transparent); }
+        .nav-item:nth-child(5):hover { border-left-color: var(--accent-red); box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
+        
         .nav-icon {
-            font-size: 20px;
+            display: none;
         }
         
         /* Main Content */
