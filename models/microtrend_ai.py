@@ -593,21 +593,21 @@ class EnsemblePredictor:
             # If first key's value is a dict with 'symbol', it's multi-symbol data
             if isinstance(market_data[first_key], dict):
                 if 'symbol' in market_data[first_key]:
-                    self.logger.info(f"🔍 Ensemble: Received multi-symbol data for {len(market_data)} symbols")
+                    self.logger.debug(f"🔍 Ensemble: Received multi-symbol data for {len(market_data)} symbols")
                     # It's a dict of {symbol: data} - predict for each symbol
                     for symbol, data in market_data.items():
                         prediction = await self._predict_single(data)
                         if prediction:
                             return prediction  # Return first valid prediction
-                    self.logger.info("⚠️ Ensemble: No predictions from any symbol")
+                    self.logger.debug("⚠️ Ensemble: No predictions from any symbol")
                     return None
                 else:
                     # First value is a dict but no 'symbol' key - treat as single symbol data
-                    self.logger.info(f"🔍 Ensemble: Treating as single-symbol data (no symbol key)")
+                    self.logger.debug(f"🔍 Ensemble: Treating as single-symbol data (no symbol key)")
                     return await self._predict_single(market_data)
             else:
                 # First value is not a dict - treat as single symbol data
-                self.logger.info(f"🔍 Ensemble: Flat data structure detected")
+                self.logger.debug(f"🔍 Ensemble: Flat data structure detected")
                 return await self._predict_single(market_data)
         
         self.logger.warning(f"⚠️ Invalid market_data format: {type(market_data)}")
@@ -616,7 +616,7 @@ class EnsemblePredictor:
     async def _predict_single(self, market_data: Dict) -> Optional[Prediction]:
         """Get ensemble prediction for a single symbol's market data."""
         symbol = market_data.get('symbol', 'UNKNOWN')
-        self.logger.info(f"🎯 Ensemble: Predicting for {symbol} with {len(self.models)} models")
+        self.logger.debug(f"🎯 Ensemble: Predicting for {symbol} with {len(self.models)} models")
         
         predictions = []
         confidences = []
@@ -629,12 +629,12 @@ class EnsemblePredictor:
                     confidences.append(pred.confidence)
                     self.logger.info(f"✅ Model {model.model_name}: {pred.side.value} @ {pred.confidence:.2%}")
                 else:
-                    self.logger.info(f"⚠️ Model {model.model_name}: No prediction")
+                    self.logger.debug(f"⚠️ Model {model.model_name}: No prediction")
             except Exception as e:
                 self.logger.error(f"❌ Model {model.model_name} error: {e}", exc_info=True)
                 
         if not predictions:
-            self.logger.info(f"⚠️ Ensemble: No predictions from any model for {symbol}")
+            self.logger.debug(f"⚠️ Ensemble: No predictions from any model for {symbol}")
             return None
             
         # Weighted voting
