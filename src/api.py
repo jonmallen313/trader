@@ -67,6 +67,8 @@ async def get_stocks():
                 request = CryptoLatestBarRequest(symbol_or_symbols=crypto_symbols)
                 bars = crypto_client.get_crypto_latest_bar(request)
                 
+                logger.info(f"Fetched {len(bars)} crypto bars from Alpaca")
+                
                 for symbol, bar in bars.items():
                     try:
                         stocks_data.append({
@@ -79,10 +81,13 @@ async def get_stocks():
                             'timestamp': datetime.now().isoformat(),
                             'type': 'crypto'
                         })
+                        logger.info(f"Added crypto: {symbol} @ ${bar.close}")
                     except Exception as e:
                         logger.warning(f"Error processing {symbol}: {e}")
+            else:
+                logger.warning("No Alpaca API credentials - skipping crypto fetch")
         except Exception as e:
-            logger.error(f"Error fetching Alpaca crypto: {e}")
+            logger.error(f"Error fetching Alpaca crypto: {e}", exc_info=True)
         
         # Get data from trading system if available
         if trading_system and trading_system.data_feed_manager:
