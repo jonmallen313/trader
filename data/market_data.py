@@ -432,10 +432,15 @@ class DataFeedManager:
         self.logger.info("All data feeds stopped")
         
     async def get_latest_data(self, symbol: str = None) -> Optional[Dict]:
-        """Get latest data from the first available feed."""
+        """Get latest data from ALL feeds (aggregated)."""
+        all_data = {}
+        
         for feed in self.feeds:
             if feed.is_running:
                 data = await feed.get_latest_data(symbol)
                 if data:
-                    return data
-        return None
+                    # Merge data from this feed
+                    if isinstance(data, dict):
+                        all_data.update(data)
+                    
+        return all_data if all_data else None
