@@ -790,8 +790,8 @@ async def get_algorithm_status(algo_id: str):
                             qty = max(1, int(position['capital'] / current_price))
                         
                         # Alpaca handles both stocks AND crypto with same API!
-                        # Use IOC for crypto paper trading (instant fills), GTC for live
-                        time_in_force = TimeInForce.IOC if is_crypto else TimeInForce.DAY
+                        # Use GTC for crypto paper (IOC gets canceled instantly in paper trading)
+                        time_in_force = TimeInForce.GTC
                         
                         order_request = MarketOrderRequest(
                             symbol=algo['symbol'],
@@ -854,8 +854,8 @@ async def get_algorithm_status(algo_id: str):
                         
                         if should_exit:
                             # Alpaca handles both stocks AND crypto with same API!
-                            # Use IOC for crypto paper trading (instant fills), GTC for live
-                            time_in_force = TimeInForce.IOC if is_crypto else TimeInForce.DAY
+                            # Use GTC for crypto paper (IOC gets canceled instantly in paper trading)
+                            time_in_force = TimeInForce.GTC
                             
                             order_request = MarketOrderRequest(
                                 symbol=algo['symbol'],

@@ -287,9 +287,8 @@ class AlpacaBroker(BrokerInterface):
         try:
             # Detect if crypto (different time_in_force required)
             is_crypto = '/' in symbol or symbol.endswith('USD')
-            # Crypto paper trading: Use IOC (Immediate or Cancel) for instant fills in paper trading
-            # GTC doesn't fill in paper mode, IOC simulates instant market execution
-            time_in_force = TimeInForce.IOC if is_crypto else TimeInForce.DAY
+            # Crypto paper trading: Use GTC (IOC gets canceled instantly in Alpaca paper trading)
+            time_in_force = TimeInForce.GTC if is_crypto else TimeInForce.DAY
             
             # For crypto with notional, convert to fractional qty
             if is_crypto and notional and not size:
