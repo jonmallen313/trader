@@ -421,50 +421,54 @@ class OnlineLearningModel(MicroTrendModel):
             features = self.feature_engineer.transform(features)
             feature_dict = {f'f_{i}': features[i] for i in range(len(features))}
             
-            # SMART LEARNING: Use historical context instead of noise
-            # Learn from daily/weekly/monthly patterns + hourly volatility
+            # AGGRESSIVE MICRO-SCALPING: Learn from ANY price movement
+            # For 1-minute fastest algorithm, we need to catch micro-trends
             if self.n_samples < 100:  # Bootstrap phase
                 # Use price changes that ACTUALLY exist in market_data
-                price_change_1 = market_data.get('price_change_1', 0)  # 1-period return
-                price_change_5 = market_data.get('price_change_5', 0)  # 5-period return
-                price_change_10 = market_data.get('price_change_10', 0)  # 10-period return
+                price_change_1 = market_data.get('price_change_1', 0)  # Last tick momentum
+                price_change_5 = market_data.get('price_change_5', 0)  # 5-tick trend
                 price_vol = market_data.get('price_volatility', 0)
                 
                 # CRITICAL: Always learn during grace period (first 5 samples)
-                # Otherwise the model will never start predicting
                 if self.n_samples < 5:
-                    # Use simple momentum for grace period based on ACTUAL data
-                    if price_change_1 > 0.0001:  # Positive momentum (>0.01%)
+                    # ULTRA-AGGRESSIVE: Use ANY price movement for grace period
+                    # Even 0.001% moves matter in micro-scalping
+                    if price_change_1 > 0.00001:  # Any upward tick
                         synthetic_label = 2  # Bullish
-                    elif price_change_1 < -0.0001:  # Negative momentum (<-0.01%)
-                        synthetic_label = 0  # Bearish
+                    elif price_change_1 < -0.00001:  # Any downward tick
+                        synthetic_label = 0  # Bearish  
                     else:
-                        # If no clear short-term signal, use longer-term trend
+                        # Use 5-period if 1-period flat
                         if price_change_5 > 0:
                             synthetic_label = 2
                         elif price_change_5 < 0:
                             synthetic_label = 0
                         else:
-                            synthetic_label = 1  # Neutral
+                            synthetic_label = 1  # True neutral
                     self.model.learn_one(feature_dict, synthetic_label)
                     self.n_samples += 1
-                    if self.n_samples % 1 == 0:  # Log every sample during grace
-                        self.logger.info(f"🎓 Grace: {symbol} trained {self.n_samples}/5 samples (label={synthetic_label}, price_chg={price_change_1:.4f})")
-                # After grace period, use more sophisticated learning
-                elif price_vol > 0.001:
-                    # Multi-timeframe consensus: short+medium must agree
-                    if price_change_1 > 0.002 and price_change_5 > 0:
-                        synthetic_label = 2  # Bullish - uptrend across timeframes
+                    if self.n_samples % 1 == 0:  # Log every sample
+                        self.logger.info(f"🎓 Grace: {symbol} trained {self.n_samples}/5 (label={synthetic_label}, chg={price_change_1:.6f})")
+                # After grace: AGGRESSIVE micro-trend learning
+                else:
+                    # Learn from ANY non-zero movement (no volatility filter)
+                    if abs(price_change_1) > 0.00001:  # Any movement at all
+                        if price_change_1 > 0.0001 and price_change_5 > 0:
+                            synthetic_label = 2  # Strong bullish
+                        elif price_change_1 < -0.0001 and price_change_5 < 0:
+                            synthetic_label = 0  # Strong bearish
+                        elif price_change_1 > 0:
+                            synthetic_label = 2  # Weak bullish
+                        elif price_change_1 < 0:
+                            synthetic_label = 0  # Weak bearish
+                        else:
+                            synthetic_label = 1
+                        
                         self.model.learn_one(feature_dict, synthetic_label)
                         self.n_samples += 1
-                    elif price_change_1 < -0.002 and price_change_5 < 0:
-                        synthetic_label = 0  # Bearish - downtrend across timeframes
-                        self.model.learn_one(feature_dict, synthetic_label)
-                        self.n_samples += 1
-                    # Else: conflicting signals, skip learning
-                    
-                    if self.n_samples % 5 == 1:  # Log every 5th sample
-                        self.logger.info(f"🎓 Bootstrap: {symbol} trained {self.n_samples}/100 samples (multi-timeframe learning)")
+                        
+                        if self.n_samples % 10 == 0:  # Log every 10
+                            self.logger.info(f"🎓 Scalp: {symbol} trained {self.n_samples}/100 (micro-trend learning)")
             
             # Get prediction
             prediction = self.model.predict_one(feature_dict)
@@ -489,11 +493,9 @@ class OnlineLearningModel(MicroTrendModel):
             if self.n_samples % 20 == 0:
                 self.logger.info(f"📊 {market_data.get('symbol', 'UNKNOWN')}: prediction={prediction}, confidence={confidence:.2%}, threshold={PREDICTION_THRESHOLD:.2%}")
                 
-            # Skip neutral predictions or low confidence
-            if prediction == 1:
-                self.logger.debug(f"⚪ Neutral prediction for {market_data.get('symbol', 'UNKNOWN')}")
-                return None
-                
+            # AGGRESSIVE MODE: Don't skip neutral - trade with slight edge
+            # Even 51% confidence on neutral can be profitable with tight stops
+            # Only filter truly low confidence
             if confidence < PREDICTION_THRESHOLD:
                 self.logger.debug(f"📉 Low confidence ({confidence:.2%}) for {market_data.get('symbol', 'UNKNOWN')}")
                 return None

@@ -7,15 +7,15 @@ GLOBAL_STOP_LOSS = float(os.getenv('GLOBAL_STOP_LOSS', -50.0))
 SPLIT_COUNT = int(os.getenv('SPLIT_COUNT', 20))
 
 # Position Management
-DEFAULT_TP_PCT = float(os.getenv('DEFAULT_TP_PCT', 0.02))  # 2% take profit per position
-DEFAULT_SL_PCT = float(os.getenv('DEFAULT_SL_PCT', 0.01))  # 1% stop loss per position
+DEFAULT_TP_PCT = float(os.getenv('DEFAULT_TP_PCT', 0.002))  # 0.2% take profit (MICRO SCALPING)
+DEFAULT_SL_PCT = float(os.getenv('DEFAULT_SL_PCT', 0.003))  # 0.3% stop loss (tight)
 MAX_POSITIONS = int(os.getenv('MAX_POSITIONS', 20))
 POSITION_SIZE_PCT = float(os.getenv('POSITION_SIZE_PCT', 0.05))  # 5% of available capital per position
 
 # Trading Parameters
 CHECK_INTERVAL = float(os.getenv('CHECK_INTERVAL', 0.5))  # seconds between monitor checks
-SIGNAL_TIMEOUT = int(os.getenv('SIGNAL_TIMEOUT', 30))    # seconds before signal expires
-MIN_PRICE_CHANGE = float(os.getenv('MIN_PRICE_CHANGE', 0.001))  # minimum price change for signal
+SIGNAL_TIMEOUT = int(os.getenv('SIGNAL_TIMEOUT', 10))    # 10 seconds (FASTER)
+MIN_PRICE_CHANGE = float(os.getenv('MIN_PRICE_CHANGE', 0.0001))  # 0.01% minimum (SENSITIVE)
 
 # Exchange Settings
 USE_EXCHANGE = os.getenv('USE_EXCHANGE', "binance")  # or "alpaca"
@@ -25,7 +25,7 @@ API_RATE_LIMIT = os.getenv('API_RATE_LIMIT', 'True').lower() == 'true'
 # Model Settings
 MODEL_RETRAIN_INTERVAL = int(os.getenv('MODEL_RETRAIN_INTERVAL', 100))  # retrain after N trades
 FEATURE_WINDOW_SIZE = int(os.getenv('FEATURE_WINDOW_SIZE', 50))     # number of ticks for features
-PREDICTION_THRESHOLD = float(os.getenv('PREDICTION_THRESHOLD', 0.55))   # confidence threshold (lowered for online learning)
+PREDICTION_THRESHOLD = float(os.getenv('PREDICTION_THRESHOLD', 0.51))   # 51% confidence (AGGRESSIVE)
 
 # Risk Management
 MAX_DAILY_LOSS = float(os.getenv('MAX_DAILY_LOSS', -100.0))
