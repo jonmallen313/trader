@@ -285,6 +285,10 @@ class AlpacaBroker(BrokerInterface):
                          order_type: str = "market", price: float = None, notional: float = None) -> OrderResult:
         """Place order on Alpaca. Use either size (shares) or notional (dollars)."""
         try:
+            # Detect if crypto (different time_in_force required)
+            is_crypto = '/' in symbol or symbol.endswith('USD')
+            time_in_force = TimeInForce.GTC if is_crypto else TimeInForce.DAY
+            
             # Determine shares to trade
             if notional:
                 # Notional order - use dollar amount
@@ -293,7 +297,7 @@ class AlpacaBroker(BrokerInterface):
                     symbol=symbol,
                     notional=notional,  # Use dollar amount
                     side=order_side,
-                    time_in_force=TimeInForce.DAY
+                    time_in_force=time_in_force
                 )
                 self.logger.info(f"Placing notional order: {symbol} {side} ${notional:.2f}")
                 order = self.client.submit_order(order_request)
@@ -316,14 +320,14 @@ class AlpacaBroker(BrokerInterface):
                         symbol=symbol,
                         qty=shares,
                         side=order_side,
-                        time_in_force=TimeInForce.DAY
+                        time_in_force=time_in_force
                     )
                 else:
                     order_request = LimitOrderRequest(
                         symbol=symbol,
                         qty=shares,
                         side=order_side,
-                        time_in_force=TimeInForce.DAY,
+                        time_in_force=time_in_force,
                         limit_price=price
                     )
                     
