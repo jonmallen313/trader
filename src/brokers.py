@@ -289,9 +289,16 @@ class AlpacaBroker(BrokerInterface):
             is_crypto = '/' in symbol or symbol.endswith('USD')
             time_in_force = TimeInForce.GTC if is_crypto else TimeInForce.DAY
             
+            # For crypto with notional, convert to fractional qty
+            if is_crypto and notional and not size:
+                # Get current price and calculate fractional crypto amount
+                current_price = await self.get_price(symbol)
+                size = notional / current_price  # Fractional crypto amount
+                self.logger.info(f"Crypto: Converting ${notional:.2f} → {size:.8f} {symbol} @ ${current_price:.2f}")
+                
             # Determine shares to trade
-            if notional:
-                # Notional order - use dollar amount
+            if notional and not is_crypto:
+                # Notional order - STOCKS ONLY (crypto needs qty)
                 order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
                 order_request = MarketOrderRequest(
                     symbol=symbol,
@@ -307,11 +314,14 @@ class AlpacaBroker(BrokerInterface):
                 fill_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
                 
             elif size:
-                # Size-based order  
-                shares = int(size) if size >= 1 else 1  # Ensure minimum 1 share
-                    
-                if shares < 1:
-                    raise ValueError(f"Order too small: {shares} shares")
+                # Size-based order (stocks or CRYPTO fractional)
+                # Crypto allows fractional shares, stocks need integers
+                if not is_crypto:
+                    shares = int(size) if size >= 1 else 1  # Stocks: minimum 1 share
+                    if shares < 1:
+                        raise ValueError(f"Order too small: {shares} shares")
+                else:
+                    shares = size  # Crypto: allow fractional
                     
                 order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
                 
@@ -322,6 +332,7 @@ class AlpacaBroker(BrokerInterface):
                         side=order_side,
                         time_in_force=time_in_force
                     )
+                    self.logger.info(f"Placing {'crypto' if is_crypto else 'stock'} order: {symbol} {side} {shares:.8f if is_crypto else shares} shares")
                 else:
                     order_request = LimitOrderRequest(
                         symbol=symbol,
