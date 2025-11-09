@@ -250,17 +250,27 @@ class AlpacaBroker(BrokerInterface):
             return 0.0
             
     async def get_price(self, symbol: str) -> float:
-        """Get current stock price."""
+        """Get current price for stocks or crypto."""
         try:
-            # Use data client for real-time quotes
-            from alpaca.data.historical import StockHistoricalDataClient
+            # Detect if crypto (contains '/' or 'USD' suffix)
+            is_crypto = '/' in symbol or symbol.endswith('USD')
             
-            data_client = StockHistoricalDataClient(self.api_key, self.secret_key)
-            
-            # Get latest bar
-            from alpaca.data.requests import StockLatestBarRequest
-            request = StockLatestBarRequest(symbol_or_symbols=[symbol])
-            bars = data_client.get_stock_latest_bar(request)
+            if is_crypto:
+                # Use Crypto API
+                from alpaca.data.historical import CryptoHistoricalDataClient
+                from alpaca.data.requests import CryptoLatestBarRequest
+                
+                data_client = CryptoHistoricalDataClient(self.api_key, self.secret_key)
+                request = CryptoLatestBarRequest(symbol_or_symbols=[symbol])
+                bars = data_client.get_crypto_latest_bar(request)
+            else:
+                # Use Stock API
+                from alpaca.data.historical import StockHistoricalDataClient
+                from alpaca.data.requests import StockLatestBarRequest
+                
+                data_client = StockHistoricalDataClient(self.api_key, self.secret_key)
+                request = StockLatestBarRequest(symbol_or_symbols=[symbol])
+                bars = data_client.get_stock_latest_bar(request)
             
             if symbol in bars:
                 return float(bars[symbol].close)
