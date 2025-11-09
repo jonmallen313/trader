@@ -12,6 +12,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from collections import defaultdict
 import json
 
+# Import database module for persistent storage
+from .database import save_trade, save_algorithm_session, init_database
+
 logger = logging.getLogger(__name__)
 
 # Router for API endpoints
@@ -698,6 +701,13 @@ async def launch_algorithm(config: dict):
         
         algorithms[algo_id] = algorithm
         
+        # **SAVE ALGORITHM SESSION TO DATABASE**
+        try:
+            save_algorithm_session(algorithm)
+            logger.info(f"Algorithm session saved to database: {algo_id}")
+        except Exception as db_error:
+            logger.error(f"Failed to save algorithm session to database: {db_error}")
+        
         trading_mode = "REAL" if is_real_trading else "SIMULATED"
         market_type = "Crypto" if is_crypto else "Stock"
         logger.info(f"{trading_mode} {market_type} Algorithm {algo_id} launched for {algorithm['symbol']} with ${algorithm['capital']} capital")
@@ -874,6 +884,7 @@ async def get_algorithm_status(algo_id: str):
                             
                             algo['total_trades'] += 1
                             trade = {
+                                'symbol': algo['symbol'],
                                 'position_id': position['id'],
                                 'side': 'SELL',
                                 'qty': position['quantity'],
@@ -881,8 +892,12 @@ async def get_algorithm_status(algo_id: str):
                                 'exit_price': round(exit_price, 2),
                                 'pnl': round(trade_pnl, 2),
                                 'order_id': order_id,
+                                'entry_time': position.get('entry_time'),
                                 'timestamp': datetime.now().isoformat(),
-                                'real_trade': True
+                                'real_trade': True,
+                                'is_crypto': is_crypto,
+                                'strategy': algo.get('strategy'),
+                                'timeframe': algo.get('timeframe')
                             }
                             
                             algo['recent_trades'].insert(0, trade)
@@ -890,6 +905,13 @@ async def get_algorithm_status(algo_id: str):
                             algo['all_trades'].append(trade)
                             algo['pnl'] += trade_pnl
                             algo['alpaca_orders'].append(order_id)
+                            
+                            # **SAVE TRADE TO DATABASE** for persistent storage
+                            try:
+                                save_trade(trade, algo_id)
+                                logger.info(f"Trade saved to database: {algo['symbol']} P&L=${trade_pnl:.2f}")
+                            except Exception as db_error:
+                                logger.error(f"Failed to save trade to database: {db_error}")
                             
                             # Reset position to ready
                             position['status'] = 'ready'
@@ -911,6 +933,44 @@ async def get_algorithm_status(algo_id: str):
             # Count active trading positions
             algo['active_positions'] = len([p for p in algo['positions'] if p['status'] == 'trading'])
             
+            # Build live positions list with current prices for frontend
+            live_positions = []
+            for position in algo['positions']:
+                if position['status'] == 'trading' and position['entry_price'] is not None:
+                    try:
+                        # Fetch current price for this position
+                        if is_crypto:
+                            from alpaca.data.historical import CryptoHistoricalDataClient
+                            from alpaca.data.requests import CryptoLatestBarRequest
+                            data_client = CryptoHistoricalDataClient(api_key, secret)
+                            request = CryptoLatestBarRequest(symbol_or_symbols=[algo['symbol']])
+                            bars = data_client.get_crypto_latest_bar(request)
+                            live_price = float(bars[algo['symbol']].close) if algo['symbol'] in bars else position['entry_price']
+                        else:
+                            from alpaca.data.historical import StockHistoricalDataClient
+                            from alpaca.data.requests import StockLatestBarRequest
+                            data_client = StockHistoricalDataClient(api_key, secret)
+                            request = StockLatestBarRequest(symbol_or_symbols=[algo['symbol']])
+                            bars = data_client.get_stock_latest_bar(request)
+                            live_price = float(bars[algo['symbol']].close) if algo['symbol'] in bars else position['entry_price']
+                        
+                        unrealized_pnl = (live_price - position['entry_price']) * position['quantity']
+                        
+                        live_positions.append({
+                            'symbol': algo['symbol'],
+                            'side': 'BUY',
+                            'quantity': position['quantity'],
+                            'entry_price': position['entry_price'],
+                            'current_price': live_price,
+                            'unrealized_pnl': unrealized_pnl,
+                            'entry_time': position.get('entry_time'),
+                            'position_id': position['id']
+                        })
+                    except Exception as e:
+                        logger.error(f"Error fetching current price for position {position['id']}: {e}")
+            
+            algo['positions_detail'] = live_positions  # Add to algo dict for frontend
+            
             # Update win rate
             if algo['all_trades']:
                 winning_trades = len([t for t in algo['all_trades'] if t['pnl'] > 0])
@@ -926,11 +986,27 @@ async def get_algorithm_status(algo_id: str):
                 algo['status'] = 'completed'
                 algo['completed'] = True
                 algo['exit_reason'] = 'Take Profit Reached'
+                
+                # **UPDATE ALGORITHM SESSION IN DATABASE**
+                try:
+                    save_algorithm_session(algo)
+                    logger.info(f"Algorithm session updated in database: {algo_id}")
+                except Exception as db_error:
+                    logger.error(f"Failed to update algorithm session: {db_error}")
+                
                 logger.info(f"REAL Algorithm {algo_id} completed: TP at ${current_value:.2f}")
             elif current_value <= sl_target:
                 algo['status'] = 'completed'
                 algo['completed'] = True
                 algo['exit_reason'] = 'Stop Loss Hit'
+                
+                # **UPDATE ALGORITHM SESSION IN DATABASE**
+                try:
+                    save_algorithm_session(algo)
+                    logger.info(f"Algorithm session updated in database: {algo_id}")
+                except Exception as db_error:
+                    logger.error(f"Failed to update algorithm session: {db_error}")
+                
                 logger.info(f"REAL Algorithm {algo_id} completed: SL at ${current_value:.2f}")
         
         except Exception as e:

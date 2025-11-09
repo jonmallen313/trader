@@ -26,6 +26,7 @@ river>=0.21.0
 # Database (lightweight)
 sqlalchemy>=2.0.0
 redis>=5.0.0
+psycopg2-binary>=2.9.9
 
-# PostgreSQL only if you need it (comment out for faster builds)
+# PostgreSQL driver for persistent trade storage
 # psycopg2-binary>=2.9.0
