@@ -212,7 +212,23 @@ async def get_positions():
     try:
         positions = []
         
-        # Try from trading system first
+        # First: Check active algorithms (frontend trading system)
+        for algo_id, algo in active_algorithms.items():
+            if algo.get('status') == 'running':
+                for pos in algo.get('positions', []):
+                    if pos.get('status') == 'trading' and pos.get('quantity'):
+                        positions.append({
+                            'symbol': algo['symbol'],
+                            'side': 'LONG',  # Frontend always buys first
+                            'entry_price': round(pos['entry_price'], 2),
+                            'current_price': round(pos['entry_price'], 2),  # Will update from Alpaca
+                            'quantity': pos['quantity'],
+                            'unrealized_pnl': 0.0,  # Calculate from current price
+                            'entry_time': pos.get('entry_time'),
+                            'algo_id': algo_id,
+                        })
+        
+        # Second: Try main autopilot system
         if trading_system and trading_system.autopilot:
             for pos in trading_system.autopilot.active_positions.values():
                 positions.append({
@@ -224,10 +240,11 @@ async def get_positions():
                     'unrealized_pnl': round(pos.unrealized_pnl, 2),
                     'entry_time': pos.entry_time.isoformat() if pos.entry_time else None,
                 })
-            
-            if positions:
-                return {'positions': positions, 'count': len(positions)}
         
+        # If we found positions, return them
+        if positions:
+            return {'positions': positions, 'count': len(positions)}
+            
         # Fallback: fetch directly from Alpaca
         try:
             from alpaca.trading.client import TradingClient
