@@ -785,11 +785,49 @@ async def get_algorithm_status(algo_id: str):
             if not can_trade:
                 return {'status': algo, 'error': 'API credentials required for real trading'}
             
-            # Check each position and execute real trades
+            # Check each position and execute real trades with AI predictions
             for position in algo['positions']:
-                # OPEN NEW POSITION
-                if position['status'] == 'ready' and random.random() > 0.3:
+                # OPEN NEW POSITION - Wait for AI signal to buy low
+                if position['status'] == 'ready':
                     try:
+                        # Get AI prediction for entry signal
+                        should_enter = False
+                        confidence = 0.0
+                        
+                        if trading_system and trading_system.predictor:
+                            try:
+                                # Get market data for prediction
+                                from data.market_data import get_market_data
+                                market_data = get_market_data(algo['symbol'])
+                                
+                                if market_data:
+                                    # Use AI model to predict if price will go UP (buy signal)
+                                    prediction = trading_system.predictor.predict(algo['symbol'], market_data)
+                                    
+                                    if prediction and 'direction' in prediction:
+                                        direction = prediction['direction']
+                                        confidence = prediction.get('confidence', 0.0)
+                                        
+                                        # Only enter on LONG signals with high confidence
+                                        # AI must be confident price is going UP
+                                        if direction == 'long' and confidence >= 0.51:  # Above threshold
+                                            should_enter = True
+                                            logger.info(f"🎯 AI ENTRY SIGNAL: {algo['symbol']} {direction} @ {confidence*100:.1f}% confidence - ENTERING TRADE")
+                                        else:
+                                            logger.debug(f"⏳ Waiting for entry: {algo['symbol']} {direction} @ {confidence*100:.1f}% confidence (need >51%)")
+                            except Exception as pred_error:
+                                logger.error(f"Error getting AI prediction for entry: {pred_error}")
+                                # Don't trade without AI signal
+                                continue
+                        else:
+                            # No AI available - don't trade blindly
+                            logger.warning("No AI predictor available - skipping trade")
+                            continue
+                        
+                        # Only enter if AI gives strong signal
+                        if not should_enter:
+                            continue
+                        
                         # Calculate quantity based on position capital
                         if is_crypto:
                             # For crypto, calculate based on asset price
@@ -818,10 +856,11 @@ async def get_algorithm_status(algo_id: str):
                         position['entry_price'] = current_price
                         position['quantity'] = qty
                         position['entry_time'] = datetime.now()  # Track entry time
+                        position['entry_confidence'] = confidence  # Track entry confidence
                         position['trades_count'] += 1
                         
                         asset_type = "crypto" if is_crypto else "shares"
-                        logger.info(f"REAL TRADE OPENED: {algo['symbol']} {qty} {asset_type} @ ${current_price:.2f} (Order: {order_id})")
+                        logger.info(f"✅ REAL TRADE OPENED: {algo['symbol']} {qty} {asset_type} @ ${current_price:.2f} (Confidence: {confidence*100:.1f}%, Order: {order_id})")
                         
                     except Exception as e:
                         logger.error(f"Error opening position: {e}")
@@ -855,12 +894,72 @@ async def get_algorithm_status(algo_id: str):
                             logger.warning(f"Could not check order status: {e}")
                             # Continue anyway, might be filled
                         
-                        # Get AI prediction to decide exit
+                        # Get AI prediction to decide exit - Sell at peaks!
+                        should_exit = False
+                        exit_confidence = 0.0
+                        exit_reason = "unknown"
+                        
                         if trading_system and trading_system.predictor:
-                            # Use real AI model prediction
-                            should_exit = random.random() > 0.5  # Placeholder - replace with actual prediction
+                            try:
+                                # Get market data for prediction
+                                from data.market_data import get_market_data
+                                market_data = get_market_data(algo['symbol'])
+                                
+                                if market_data:
+                                    # Use AI model to predict future direction
+                                    prediction = trading_system.predictor.predict(algo['symbol'], market_data)
+                                    
+                                    if prediction and 'direction' in prediction:
+                                        direction = prediction['direction']
+                                        exit_confidence = prediction.get('confidence', 0.0)
+                                        
+                                        # Calculate current P&L
+                                        current_pnl = (current_price - position['entry_price']) * position['quantity']
+                                        pnl_percent = (current_pnl / (position['entry_price'] * position['quantity'])) * 100
+                                        
+                                        # EXIT LOGIC: Multiple conditions
+                                        # 1. AI predicts DOWN/SHORT - price about to fall, sell now!
+                                        if direction in ['short', 'neutral'] and exit_confidence >= 0.51:
+                                            should_exit = True
+                                            exit_reason = f"AI predicts {direction} @ {exit_confidence*100:.1f}%"
+                                            logger.info(f"🔴 AI EXIT SIGNAL: {algo['symbol']} {direction} @ {exit_confidence*100:.1f}% - SELLING at peak!")
+                                        
+                                        # 2. Take profit hit (position-level)
+                                        elif pnl_percent >= 0.2:  # 0.2% gain per position
+                                            should_exit = True
+                                            exit_reason = f"Take profit +{pnl_percent:.2f}%"
+                                            logger.info(f"💰 TAKE PROFIT: {algo['symbol']} gained {pnl_percent:.2f}% - SELLING!")
+                                        
+                                        # 3. Stop loss hit (position-level)
+                                        elif pnl_percent <= -0.3:  # -0.3% loss per position
+                                            should_exit = True
+                                            exit_reason = f"Stop loss {pnl_percent:.2f}%"
+                                            logger.info(f"🛑 STOP LOSS: {algo['symbol']} down {pnl_percent:.2f}% - SELLING!")
+                                        
+                                        # 4. Extended hold with any profit - secure gains
+                                        elif holding_seconds > 300 and current_pnl > 0:  # 5 minutes + profit
+                                            should_exit = True
+                                            exit_reason = f"Extended hold with profit ${current_pnl:.2f}"
+                                            logger.info(f"⏱️ TIME EXIT: {algo['symbol']} held 5+ min with profit - SECURING GAINS!")
+                                        
+                                        else:
+                                            logger.debug(f"⏳ HOLDING: {algo['symbol']} {direction} @ {exit_confidence*100:.1f}%, P&L: {pnl_percent:.3f}%, Hold: {holding_seconds:.0f}s")
+                                            
+                            except Exception as pred_error:
+                                logger.error(f"Error getting AI prediction for exit: {pred_error}")
+                                # Fallback: exit on basic P&L thresholds
+                                current_pnl = (current_price - position['entry_price']) * position['quantity']
+                                pnl_percent = (current_pnl / (position['entry_price'] * position['quantity'])) * 100
+                                if pnl_percent >= 0.2 or pnl_percent <= -0.3:
+                                    should_exit = True
+                                    exit_reason = f"Fallback P&L {pnl_percent:.2f}%"
                         else:
-                            should_exit = random.random() > 0.5
+                            # No AI - use basic P&L thresholds only
+                            current_pnl = (current_price - position['entry_price']) * position['quantity']
+                            pnl_percent = (current_pnl / (position['entry_price'] * position['quantity'])) * 100
+                            if pnl_percent >= 0.2 or pnl_percent <= -0.3:
+                                should_exit = True
+                                exit_reason = f"No AI - P&L {pnl_percent:.2f}%"
                         
                         if should_exit:
                             # Alpaca handles both stocks AND crypto with same API!
@@ -897,7 +996,10 @@ async def get_algorithm_status(algo_id: str):
                                 'real_trade': True,
                                 'is_crypto': is_crypto,
                                 'strategy': algo.get('strategy'),
-                                'timeframe': algo.get('timeframe')
+                                'timeframe': algo.get('timeframe'),
+                                'exit_reason': exit_reason,  # Track why we exited
+                                'entry_confidence': position.get('entry_confidence', 0),  # Track entry confidence
+                                'exit_confidence': exit_confidence  # Track exit confidence
                             }
                             
                             algo['recent_trades'].insert(0, trade)
