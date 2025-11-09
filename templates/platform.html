@@ -1501,8 +1501,19 @@
             } else if (pageName === 'positions') {
                 loadPositions();
                 loadTrades();
+                // Auto-refresh positions every 2 seconds for live P&L updates
+                if (window.positionsInterval) clearInterval(window.positionsInterval);
+                window.positionsInterval = setInterval(() => {
+                    loadPositions();
+                }, 2000);
             } else if (pageName === 'dashboard') {
                 loadDashboard();
+            } else {
+                // Clear interval when leaving positions page
+                if (window.positionsInterval) {
+                    clearInterval(window.positionsInterval);
+                    window.positionsInterval = null;
+                }
             }
         }
         
@@ -2183,14 +2194,23 @@
                     list.innerHTML = data.positions.map(pos => `
                         <div class="algo-card">
                             <div class="algo-header">
-                                <div>
-                                    <div class="algo-name">${pos.symbol}</div>
+                                <div style="flex: 1;">
+                                    <div class="algo-name">${pos.symbol} - ${pos.side}</div>
                                     <div style="font-size: 14px; color: var(--text-secondary); margin-top: 4px;">
-                                        ${pos.quantity} shares @ $${pos.entry_price.toFixed(2)}
+                                        Qty: ${pos.quantity.toFixed(6)} @ Entry: $${pos.entry_price.toFixed(2)}
+                                    </div>
+                                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+                                        Current: $${pos.current_price.toFixed(2)} | ${pos.entry_time ? new Date(pos.entry_time).toLocaleString() : 'Just opened'}
                                     </div>
                                 </div>
-                                <div class="stat-value ${pos.unrealized_pnl >= 0 ? 'positive' : 'negative'}">
-                                    ${pos.unrealized_pnl >= 0 ? '+' : ''}$${pos.unrealized_pnl.toFixed(2)}
+                                <div style="text-align: right;">
+                                    <div class="stat-label" style="margin-bottom: 4px;">P&L</div>
+                                    <div class="stat-value ${pos.unrealized_pnl >= 0 ? 'positive' : 'negative'}" style="font-size: 18px;">
+                                        ${pos.unrealized_pnl >= 0 ? '+' : ''}$${pos.unrealized_pnl.toFixed(2)}
+                                    </div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                                        ${((pos.unrealized_pnl / (pos.entry_price * pos.quantity)) * 100).toFixed(2)}%
+                                    </div>
                                 </div>
                             </div>
                         </div>

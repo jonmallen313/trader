@@ -208,22 +208,57 @@ async def get_predictions():
 
 @router.get("/positions")
 async def get_positions():
-    """Get current trading positions."""
+    """Get current trading positions with live prices."""
     try:
         positions = []
+        
+        # Get Alpaca clients for live price fetching
+        api_key = os.getenv('ALPACA_API_KEY')
+        secret = os.getenv('ALPACA_API_SECRET')
+        current_prices = {}
         
         # First: Check active algorithms (frontend trading system)
         for algo_id, algo in active_algorithms.items():
             if algo.get('status') == 'running':
+                symbol = algo['symbol']
+                is_crypto = algo.get('is_crypto', False)
+                
+                # Fetch current price
+                if api_key and secret and symbol not in current_prices:
+                    try:
+                        if is_crypto:
+                            from alpaca.data.historical import CryptoHistoricalDataClient
+                            from alpaca.data.requests import CryptoLatestBarRequest
+                            data_client = CryptoHistoricalDataClient(api_key, secret)
+                            request = CryptoLatestBarRequest(symbol_or_symbols=[symbol])
+                            bars = data_client.get_crypto_latest_bar(request)
+                            current_prices[symbol] = float(bars[symbol].close) if symbol in bars else None
+                        else:
+                            from alpaca.data.historical import StockHistoricalDataClient
+                            from alpaca.data.requests import StockLatestBarRequest
+                            data_client = StockHistoricalDataClient(api_key, secret)
+                            request = StockLatestBarRequest(symbol_or_symbols=[symbol])
+                            bars = data_client.get_stock_latest_bar(request)
+                            current_prices[symbol] = float(bars[symbol].close) if symbol in bars else None
+                    except Exception as e:
+                        logger.warning(f"Could not fetch price for {symbol}: {e}")
+                        current_prices[symbol] = None
+                
+                # Add positions with live prices
                 for pos in algo.get('positions', []):
                     if pos.get('status') == 'trading' and pos.get('quantity'):
+                        entry_price = pos['entry_price']
+                        current_price = current_prices.get(symbol, entry_price)
+                        quantity = pos['quantity']
+                        unrealized_pnl = (current_price - entry_price) * quantity
+                        
                         positions.append({
-                            'symbol': algo['symbol'],
+                            'symbol': symbol,
                             'side': 'LONG',  # Frontend always buys first
-                            'entry_price': round(pos['entry_price'], 2),
-                            'current_price': round(pos['entry_price'], 2),  # Will update from Alpaca
-                            'quantity': pos['quantity'],
-                            'unrealized_pnl': 0.0,  # Calculate from current price
+                            'entry_price': round(entry_price, 2),
+                            'current_price': round(current_price, 2),
+                            'quantity': quantity,
+                            'unrealized_pnl': round(unrealized_pnl, 2),
                             'entry_time': pos.get('entry_time'),
                             'algo_id': algo_id,
                         })
