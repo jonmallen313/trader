@@ -218,7 +218,7 @@ async def get_positions():
         current_prices = {}
         
         # First: Check active algorithms (frontend trading system)
-        for algo_id, algo in active_algorithms.items():
+        for algo_id, algo in algorithms.items():
             if algo.get('status') == 'running':
                 symbol = algo['symbol']
                 is_crypto = algo.get('is_crypto', False)
