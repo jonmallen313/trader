@@ -258,6 +258,52 @@ async def get_positions():
         logger.error(f"Error getting positions: {e}")
         return {'positions': [], 'error': str(e)}
 
+@router.get("/trades")
+async def get_trades():
+    """Get trade history from Alpaca."""
+    try:
+        from alpaca.trading.client import TradingClient
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import QueryOrderStatus
+        from datetime import datetime, timedelta
+        
+        api_key = os.getenv('ALPACA_API_KEY')
+        secret = os.getenv('ALPACA_API_SECRET')
+        
+        if not api_key or not secret:
+            return {'trades': [], 'error': 'Alpaca credentials not configured'}
+        
+        client = TradingClient(api_key, secret, paper=True)
+        
+        # Get filled orders from last 7 days
+        request = GetOrdersRequest(
+            status=QueryOrderStatus.CLOSED,
+            limit=100,
+            after=datetime.now() - timedelta(days=7)
+        )
+        
+        orders = client.get_orders(filter=request)
+        
+        trades = []
+        for order in orders:
+            if order.filled_at:  # Only include filled orders
+                trades.append({
+                    'id': str(order.id),
+                    'symbol': order.symbol,
+                    'side': order.side.value,
+                    'quantity': float(order.filled_qty) if order.filled_qty else 0,
+                    'price': float(order.filled_avg_price) if order.filled_avg_price else 0,
+                    'status': order.status.value,
+                    'filled_at': order.filled_at.isoformat() if order.filled_at else None,
+                    'type': order.type.value if order.type else 'market',
+                })
+        
+        return {'trades': trades, 'count': len(trades)}
+        
+    except Exception as e:
+        logger.error(f"Error getting trades: {e}")
+        return {'trades': [], 'error': str(e)}
+
 @router.get("/account")
 async def get_account():
     """Get account balance and stats."""

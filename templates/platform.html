@@ -1434,6 +1434,17 @@
                         <p style="text-align: center; color: var(--text-secondary);">No active positions</p>
                     </div>
                 </div>
+                
+                <div class="page-header" style="margin-top: 40px;">
+                    <h1 class="page-title">Trade History</h1>
+                    <p class="page-subtitle">Recently closed trades</p>
+                </div>
+                
+                <div id="tradesHistory">
+                    <div class="info-section">
+                        <p style="text-align: center; color: var(--text-secondary);">No trade history</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1489,6 +1500,7 @@
                 loadAlgorithms();
             } else if (pageName === 'positions') {
                 loadPositions();
+                loadTrades();
             } else if (pageName === 'dashboard') {
                 loadDashboard();
             }
@@ -1764,8 +1776,9 @@
                 
                 if (response.ok) {
                     alert(`${side.toUpperCase()} order placed successfully!\n\nSymbol: ${symbol}\nQty: ${qty}\nType: ${orderType}`);
-                    // Refresh positions
+                    // Refresh positions and trades
                     loadPositions();
+                    loadTrades();
                 } else {
                     alert(`Order failed: ${result.error || 'Unknown error'}`);
                 }
@@ -2193,6 +2206,59 @@
                 }
             } catch (error) {
                 console.error('Error loading positions:', error);
+            }
+        }
+        
+        // Load trade history
+        async function loadTrades() {
+            try {
+                const response = await fetch('/api/trades');
+                const data = await response.json();
+                
+                const list = document.getElementById('tradesHistory');
+                if (!list) return;
+                
+                if (data.trades && data.trades.length > 0) {
+                    list.innerHTML = data.trades.map(trade => {
+                        const timestamp = new Date(trade.filled_at).toLocaleString();
+                        const sideClass = trade.side === 'buy' ? 'positive' : 'negative';
+                        const sideLabel = trade.side === 'buy' ? 'BUY' : 'SELL';
+                        
+                        return `
+                            <div class="info-section" style="margin-bottom: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <h3 style="margin: 0 0 8px 0; color: var(--text-primary);">
+                                            <span class="stat-label ${sideClass}">${sideLabel}</span>
+                                            ${trade.symbol}
+                                        </h3>
+                                        <div style="color: var(--text-secondary); font-size: 12px;">
+                                            ${timestamp}
+                                        </div>
+                                    </div>
+                                    <div style="text-align: right;">
+                                        <div style="color: var(--text-primary); font-size: 14px;">
+                                            ${parseFloat(trade.qty).toFixed(6)} @ $${parseFloat(trade.filled_avg_price).toFixed(4)}
+                                        </div>
+                                        <div style="color: var(--text-secondary); font-size: 12px;">
+                                            Total: $${(parseFloat(trade.qty) * parseFloat(trade.filled_avg_price)).toFixed(2)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                } else {
+                    list.innerHTML = `
+                        <div class="info-section">
+                            <p style="text-align: center; color: var(--text-secondary);">
+                                No trade history
+                            </p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading trades:', error);
             }
         }
         
