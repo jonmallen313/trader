@@ -11,6 +11,7 @@ DEFAULT_TP_PCT = float(os.getenv('DEFAULT_TP_PCT', 0.002))  # 0.2% take profit (
 DEFAULT_SL_PCT = float(os.getenv('DEFAULT_SL_PCT', 0.003))  # 0.3% stop loss (tight)
 MAX_POSITIONS = int(os.getenv('MAX_POSITIONS', 20))
 POSITION_SIZE_PCT = float(os.getenv('POSITION_SIZE_PCT', 0.05))  # 5% of available capital per position
+MIN_POSITION_SIZE = float(os.getenv('MIN_POSITION_SIZE', 10.0))  # Minimum $10 (Alpaca crypto requirement)
 
 # Trading Parameters
 CHECK_INTERVAL = float(os.getenv('CHECK_INTERVAL', 0.5))  # seconds between monitor checks

@@ -193,8 +193,8 @@ class AutoPilotController:
             
         # Check available capital
         position_size = self.available_capital * POSITION_SIZE_PCT
-        if position_size < 5.0:  # Minimum $5 per position
-            self.logger.info("Insufficient capital for new position")
+        if position_size < MIN_POSITION_SIZE:  # Minimum $10 per position (Alpaca crypto requirement)
+            self.logger.info(f"Insufficient capital for new position (need ${MIN_POSITION_SIZE}, have ${position_size:.2f})")
             return False
             
         return True
@@ -208,8 +208,9 @@ class AutoPilotController:
             # Get current price
             current_price = await self.exchange.get_price(signal.symbol)
             
-            # Calculate position size
+            # Calculate position size with minimum enforcement
             position_value = self.available_capital * POSITION_SIZE_PCT
+            position_value = max(position_value, MIN_POSITION_SIZE)  # Enforce $10 minimum for Alpaca crypto
             position_size = position_value / current_price
             
             # Ensure minimum position size (at least 1 share for stocks)
