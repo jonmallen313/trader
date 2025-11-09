@@ -958,6 +958,163 @@
             letter-spacing: 0.5px;
             color: var(--text-secondary);
             margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .trades-header::before {
+            content: '';
+            width: 3px;
+            height: 14px;
+            background: linear-gradient(180deg, var(--accent-cyan), var(--accent-purple));
+            border-radius: 2px;
+        }
+        
+        .live-trades {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        
+        .live-trades::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .live-trades::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+        
+        .live-trades::-webkit-scrollbar-thumb {
+            background: var(--accent-cyan);
+            border-radius: 3px;
+        }
+        
+        .position-card {
+            background: linear-gradient(135deg, rgba(0, 255, 247, 0.05), rgba(88, 80, 236, 0.05));
+            border: 1px solid rgba(0, 255, 247, 0.2);
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .position-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+        }
+        
+        .position-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 255, 247, 0.2);
+            border-color: var(--accent-cyan);
+        }
+        
+        .position-card.negative {
+            background: linear-gradient(135deg, rgba(255, 0, 64, 0.05), rgba(255, 107, 107, 0.05));
+            border-color: rgba(255, 0, 64, 0.2);
+        }
+        
+        .position-card.negative::before {
+            background: linear-gradient(90deg, var(--accent-red), #ff6b6b);
+        }
+        
+        .position-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .position-symbol {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .position-side {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .position-side.buy {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+        
+        .position-side.sell {
+            background: rgba(255, 0, 64, 0.15);
+            color: var(--accent-red);
+            border: 1px solid rgba(255, 0, 64, 0.3);
+        }
+        
+        .position-pnl {
+            font-size: 18px;
+            font-weight: 700;
+            text-align: right;
+        }
+        
+        .position-pnl.positive {
+            color: var(--accent-green);
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+        
+        .position-pnl.negative {
+            color: var(--accent-red);
+            text-shadow: 0 0 10px rgba(255, 0, 64, 0.3);
+        }
+        
+        .position-details {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        
+        .position-detail {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .position-detail-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+        
+        .position-detail-value {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .position-percent {
+            font-size: 14px;
+            font-weight: 600;
+            margin-left: 4px;
         }
         
         /* Receipt Styling */
@@ -1990,20 +2147,41 @@
                         const positionsHtml = status.positions_detail.map(pos => {
                             const unrealizedPnl = pos.unrealized_pnl || 0;
                             const pnlPercent = pos.entry_price ? ((pos.current_price - pos.entry_price) / pos.entry_price * 100) : 0;
+                            const isPositive = unrealizedPnl >= 0;
+                            const pnlClass = isPositive ? 'positive' : 'negative';
+                            const cardClass = isPositive ? '' : 'negative';
+                            
                             return `
-                                <div class="trade-item" style="padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px; margin-bottom: 8px;">
-                                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                                        <span style="font-weight: 700; color: ${pos.side === 'BUY' ? 'var(--accent-green)' : 'var(--accent-red)'}">
-                                            ${pos.side} ${pos.symbol}
-                                        </span>
-                                        <span style="font-weight: 700; ${unrealizedPnl >= 0 ? 'color: var(--accent-green)' : 'color: var(--accent-red)'}">
-                                            ${unrealizedPnl >= 0 ? '+' : ''}$${unrealizedPnl.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)
-                                        </span>
+                                <div class="position-card ${cardClass}">
+                                    <div class="position-header">
+                                        <div class="position-symbol">
+                                            <span>${pos.symbol}</span>
+                                            <span class="position-side ${pos.side.toLowerCase()}">${pos.side}</span>
+                                        </div>
+                                        <div class="position-pnl ${pnlClass}">
+                                            ${isPositive ? '+' : ''}$${unrealizedPnl.toFixed(2)}
+                                            <span class="position-percent">(${isPositive ? '+' : ''}${pnlPercent.toFixed(2)}%)</span>
+                                        </div>
                                     </div>
-                                    <div style="font-size: 11px; color: var(--text-secondary); display: flex; justify-content: space-between;">
-                                        <span>Qty: ${pos.quantity}</span>
-                                        <span>Entry: $${pos.entry_price ? pos.entry_price.toFixed(2) : 'N/A'}</span>
-                                        <span>Current: $${pos.current_price ? pos.current_price.toFixed(2) : 'N/A'}</span>
+                                    <div class="position-details">
+                                        <div class="position-detail">
+                                            <span class="position-detail-label">Quantity</span>
+                                            <span class="position-detail-value">${pos.quantity.toFixed(6)}</span>
+                                        </div>
+                                        <div class="position-detail">
+                                            <span class="position-detail-label">Entry Price</span>
+                                            <span class="position-detail-value">$${pos.entry_price ? pos.entry_price.toFixed(2) : 'N/A'}</span>
+                                        </div>
+                                        <div class="position-detail">
+                                            <span class="position-detail-label">Current Price</span>
+                                            <span class="position-detail-value" style="color: ${isPositive ? 'var(--accent-green)' : 'var(--accent-red)'}">
+                                                $${pos.current_price ? pos.current_price.toFixed(2) : 'N/A'}
+                                            </span>
+                                        </div>
+                                        <div class="position-detail">
+                                            <span class="position-detail-label">Value</span>
+                                            <span class="position-detail-value">$${(pos.current_price * pos.quantity).toFixed(2)}</span>
+                                        </div>
                                     </div>
                                 </div>
                             `;
@@ -2015,20 +2193,28 @@
                     
                     // Update live trades
                     if (status.recent_trades && status.recent_trades.length > 0) {
-                        const tradesHtml = status.recent_trades.map(trade => `
-                            <div class="trade-item">
-                                <div>
-                                    <span style="font-weight: 700; color: ${trade.side === 'BUY' ? 'var(--accent-green)' : 'var(--accent-red)'}">
-                                        ${trade.side}
-                                    </span>
-                                    <span style="margin-left: 8px;">${trade.qty} @ $${trade.price.toFixed(2)}</span>
+                        const tradesHtml = status.recent_trades.map(trade => {
+                            const isProfit = trade.pnl >= 0;
+                            const cardClass = isProfit ? '' : 'negative';
+                            return `
+                                <div class="position-card ${cardClass}" style="padding: 12px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <span class="position-side ${trade.side.toLowerCase()}" style="font-size: 10px; padding: 3px 6px;">
+                                                ${trade.side}
+                                            </span>
+                                            <span style="font-size: 13px; font-weight: 600;">${trade.qty.toFixed(6)} @ $${trade.price ? trade.price.toFixed(2) : 'N/A'}</span>
+                                        </div>
+                                        <div style="font-size: 15px; font-weight: 700; ${isProfit ? 'color: var(--accent-green)' : 'color: var(--accent-red)'}">
+                                            ${isProfit ? '+' : ''}$${trade.pnl.toFixed(2)}
+                                        </div>
+                                    </div>
                                 </div>
-                                <div style="font-weight: 700; ${trade.pnl >= 0 ? 'color: var(--accent-green)' : 'color: var(--accent-red)'}">
-                                    ${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}
-                                </div>
-                            </div>
-                        `).join('');
+                            `;
+                        }).join('');
                         document.getElementById('liveTrades').innerHTML = tradesHtml;
+                    } else {
+                        document.getElementById('liveTrades').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No closed trades yet</div>';
                     }
                     
                     // Check if algorithm completed
