@@ -1020,6 +1020,20 @@
             border-color: var(--accent-cyan);
         }
         
+        .position-card.positive {
+            background: linear-gradient(135deg, rgba(0, 255, 135, 0.08), rgba(0, 230, 118, 0.05));
+            border-color: rgba(0, 255, 135, 0.3);
+        }
+        
+        .position-card.positive::before {
+            background: linear-gradient(90deg, var(--accent-green), #00ff87);
+        }
+        
+        .position-card.positive:hover {
+            box-shadow: 0 8px 24px rgba(0, 255, 135, 0.25);
+            border-color: var(--accent-green);
+        }
+        
         .position-card.negative {
             background: linear-gradient(135deg, rgba(255, 0, 64, 0.05), rgba(255, 107, 107, 0.05));
             border-color: rgba(255, 0, 64, 0.2);
@@ -1027,6 +1041,10 @@
         
         .position-card.negative::before {
             background: linear-gradient(90deg, var(--accent-red), #ff6b6b);
+        }
+        
+        .position-card.negative:hover {
+            box-shadow: 0 8px 24px rgba(255, 0, 64, 0.2);
         }
         
         .position-header {
@@ -2191,7 +2209,7 @@
                                 const pnlPercent = pos.entry_price ? ((pos.current_price - pos.entry_price) / pos.entry_price * 100) : 0;
                                 const isPositive = unrealizedPnl >= 0;
                                 const pnlClass = isPositive ? 'positive' : 'negative';
-                                const cardClass = isPositive ? '' : 'negative';
+                                const cardClass = isPositive ? 'positive' : 'negative';
                                 
                                 return `
                                     <div class="position-card ${cardClass}">
@@ -2274,7 +2292,6 @@
             } catch (error) {
                 console.error(`Error updating algorithm status for ${symbol}:`, error);
             }
-        }
         }
         
         function showReceipt(status) {
