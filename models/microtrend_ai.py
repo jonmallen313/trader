@@ -424,33 +424,40 @@ class OnlineLearningModel(MicroTrendModel):
             # SMART LEARNING: Use historical context instead of noise
             # Learn from daily/weekly/monthly patterns + hourly volatility
             if self.n_samples < 100:  # Bootstrap phase
-                # Use MULTIPLE timeframe agreement for synthetic label
-                daily_return = market_data.get('daily_return', 0)
-                weekly_return = market_data.get('weekly_return', 0) 
-                hourly_vol = market_data.get('hourly_volatility', 0)
+                # Use price changes that ACTUALLY exist in market_data
+                price_change_1 = market_data.get('price_change_1', 0)  # 1-period return
+                price_change_5 = market_data.get('price_change_5', 0)  # 5-period return
+                price_change_10 = market_data.get('price_change_10', 0)  # 10-period return
+                price_vol = market_data.get('price_volatility', 0)
                 
                 # CRITICAL: Always learn during grace period (first 5 samples)
                 # Otherwise the model will never start predicting
                 if self.n_samples < 5:
-                    # Use simple momentum for grace period
-                    if daily_return > 0:
+                    # Use simple momentum for grace period based on ACTUAL data
+                    if price_change_1 > 0.0001:  # Positive momentum (>0.01%)
                         synthetic_label = 2  # Bullish
-                    elif daily_return < 0:
+                    elif price_change_1 < -0.0001:  # Negative momentum (<-0.01%)
                         synthetic_label = 0  # Bearish
                     else:
-                        synthetic_label = 1  # Neutral
+                        # If no clear short-term signal, use longer-term trend
+                        if price_change_5 > 0:
+                            synthetic_label = 2
+                        elif price_change_5 < 0:
+                            synthetic_label = 0
+                        else:
+                            synthetic_label = 1  # Neutral
                     self.model.learn_one(feature_dict, synthetic_label)
                     self.n_samples += 1
                     if self.n_samples % 1 == 0:  # Log every sample during grace
-                        self.logger.info(f"🎓 Grace: {symbol} trained {self.n_samples}/5 samples (bootstrap learning)")
+                        self.logger.info(f"🎓 Grace: {symbol} trained {self.n_samples}/5 samples (label={synthetic_label}, price_chg={price_change_1:.4f})")
                 # After grace period, use more sophisticated learning
-                elif hourly_vol > 0.001:
-                    # Multi-timeframe consensus: day+week must agree
-                    if daily_return > 0.002 and weekly_return > 0:
+                elif price_vol > 0.001:
+                    # Multi-timeframe consensus: short+medium must agree
+                    if price_change_1 > 0.002 and price_change_5 > 0:
                         synthetic_label = 2  # Bullish - uptrend across timeframes
                         self.model.learn_one(feature_dict, synthetic_label)
                         self.n_samples += 1
-                    elif daily_return < -0.002 and weekly_return < 0:
+                    elif price_change_1 < -0.002 and price_change_5 < 0:
                         synthetic_label = 0  # Bearish - downtrend across timeframes
                         self.model.learn_one(feature_dict, synthetic_label)
                         self.n_samples += 1
