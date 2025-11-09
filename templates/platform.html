@@ -1684,6 +1684,21 @@
         }
         
         function showStockDetail(symbol) {
+            // Check if switching to a different stock while algo is running
+            if (currentSymbol && currentSymbol !== symbol && runningAlgorithms[currentSymbol]) {
+                // Notify user they're switching stocks
+                const confirmed = confirm(
+                    `You have an algorithm running on ${currentSymbol}.\n\n` +
+                    `Switching to ${symbol} will open a new trading window.\n` +
+                    `Your ${currentSymbol} algorithm will continue running in the background.\n\n` +
+                    `Continue?`
+                );
+                
+                if (!confirmed) {
+                    return;
+                }
+            }
+            
             currentSymbol = symbol;
             document.getElementById('stockDetailSymbol').textContent = symbol;
             
@@ -1697,6 +1712,26 @@
             
             loadStockDetail(symbol);
             loadTradingViewChart(symbol);
+            
+            // Check if there's an existing algorithm for this symbol
+            if (runningAlgorithms[symbol]) {
+                // Resume showing the existing algorithm
+                document.getElementById('algoConfig').style.display = 'none';
+                document.getElementById('algoStatus').style.display = 'block';
+                
+                // Start updating if not already
+                if (!algoUpdateIntervals[symbol]) {
+                    algoUpdateIntervals[symbol] = setInterval(() => updateAlgorithmStatus(symbol), 2000);
+                }
+                
+                // Update display immediately
+                updateAlgorithmStatus(symbol);
+            } else {
+                // Show fresh config form
+                document.getElementById('algoConfig').style.display = 'block';
+                document.getElementById('algoStatus').style.display = 'none';
+                document.getElementById('algoReceipt').style.display = 'none';
+            }
         }
         
         function showAlgorithmBuilder() {
@@ -2033,9 +2068,9 @@
             updateSLPreview();
         });
         
-        let runningAlgorithm = null;
-        let algoUpdateInterval = null;
-        let algoStartTime = null;
+        let runningAlgorithms = {};  // Track multiple algorithms by symbol
+        let algoUpdateIntervals = {};  // Track update intervals by symbol
+        let algoStartTimes = {};  // Track start times by symbol
         
         async function launchAlgorithm() {
             const config = {
@@ -2070,8 +2105,9 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    runningAlgorithm = result.algorithm;
-                    algoStartTime = new Date();
+                    // Store algorithm by symbol
+                    runningAlgorithms[currentSymbol] = result.algorithm;
+                    algoStartTimes[currentSymbol] = new Date();
                     
                     // Show status panel, hide config form
                     document.querySelector('.algo-config-form').style.display = 'none';
@@ -2081,9 +2117,11 @@
                     // Initialize progress bar
                     updateProgressBar(config.capital, config.capital, config);
                     
-                    // Start live updates
-                    updateAlgorithmStatus();
-                    algoUpdateInterval = setInterval(updateAlgorithmStatus, 2000);
+                    // Start live updates for this symbol
+                    updateAlgorithmStatus(currentSymbol);
+                    algoUpdateIntervals[currentSymbol] = setInterval(() => updateAlgorithmStatus(currentSymbol), 2000);
+                    
+                    alert(`✅ Algorithm launched for ${currentSymbol}!\n\nYou can now switch to other stocks to launch more algorithms.\nAll algorithms will run simultaneously in the background.`);
                 } else {
                     alert(`Failed to launch: ${result.error}`);
                 }
@@ -2118,114 +2156,125 @@
             }
         }
         
-        async function updateAlgorithmStatus() {
-            if (!runningAlgorithm) return;
+        async function updateAlgorithmStatus(symbol) {
+            if (!symbol || !runningAlgorithms[symbol]) return;
+            
+            const algo = runningAlgorithms[symbol];
             
             try {
-                const response = await fetch(`/api/algorithms/${runningAlgorithm.id}/status`);
+                const response = await fetch(`/api/algorithms/${algo.id}/status`);
                 const data = await response.json();
                 
                 if (data.status) {
                     const status = data.status;
                     const currentValue = status.capital + status.pnl;
                     
-                    // Update progress bar
-                    updateProgressBar(currentValue, status.capital, {
-                        take_profit: status.take_profit,
-                        stop_loss: status.stop_loss
-                    });
+                    // Only update UI if we're viewing this symbol
+                    if (symbol === currentSymbol) {
+                        // Update progress bar
+                        updateProgressBar(currentValue, status.capital, {
+                            take_profit: status.take_profit,
+                            stop_loss: status.stop_loss
+                        });
+                        
+                        // Update metrics
+                        document.getElementById('statusPositions').textContent = `${status.active_positions}/${status.splits}`;
+                        document.getElementById('statusPnL').textContent = `$${status.pnl.toFixed(2)}`;
+                        document.getElementById('statusPnL').className = status.pnl >= 0 ? 'metric-value positive' : 'metric-value negative';
+                        document.getElementById('statusWinRate').textContent = `${status.win_rate.toFixed(1)}%`;
+                        document.getElementById('statusTrades').textContent = status.total_trades;
                     
-                    // Update metrics
-                    document.getElementById('statusPositions').textContent = `${status.active_positions}/${status.splits}`;
-                    document.getElementById('statusPnL').textContent = `$${status.pnl.toFixed(2)}`;
-                    document.getElementById('statusPnL').className = status.pnl >= 0 ? 'metric-value positive' : 'metric-value negative';
-                    document.getElementById('statusWinRate').textContent = `${status.win_rate.toFixed(1)}%`;
-                    document.getElementById('statusTrades').textContent = status.total_trades;
-                    
-                    // Update live positions
-                    if (status.positions_detail && status.positions_detail.length > 0) {
-                        const positionsHtml = status.positions_detail.map(pos => {
-                            const unrealizedPnl = pos.unrealized_pnl || 0;
-                            const pnlPercent = pos.entry_price ? ((pos.current_price - pos.entry_price) / pos.entry_price * 100) : 0;
-                            const isPositive = unrealizedPnl >= 0;
-                            const pnlClass = isPositive ? 'positive' : 'negative';
-                            const cardClass = isPositive ? '' : 'negative';
-                            
-                            return `
-                                <div class="position-card ${cardClass}">
-                                    <div class="position-header">
-                                        <div class="position-symbol">
-                                            <span>${pos.symbol}</span>
-                                            <span class="position-side ${pos.side.toLowerCase()}">${pos.side}</span>
+                        // Update live positions
+                        if (status.positions_detail && status.positions_detail.length > 0) {
+                            const positionsHtml = status.positions_detail.map(pos => {
+                                const unrealizedPnl = pos.unrealized_pnl || 0;
+                                const pnlPercent = pos.entry_price ? ((pos.current_price - pos.entry_price) / pos.entry_price * 100) : 0;
+                                const isPositive = unrealizedPnl >= 0;
+                                const pnlClass = isPositive ? 'positive' : 'negative';
+                                const cardClass = isPositive ? '' : 'negative';
+                                
+                                return `
+                                    <div class="position-card ${cardClass}">
+                                        <div class="position-header">
+                                            <div class="position-symbol">
+                                                <span>${pos.symbol}</span>
+                                                <span class="position-side ${pos.side.toLowerCase()}">${pos.side}</span>
+                                            </div>
+                                            <div class="position-pnl ${pnlClass}">
+                                                ${isPositive ? '+' : ''}$${unrealizedPnl.toFixed(2)}
+                                                <span class="position-percent">(${isPositive ? '+' : ''}${pnlPercent.toFixed(2)}%)</span>
+                                            </div>
                                         </div>
-                                        <div class="position-pnl ${pnlClass}">
-                                            ${isPositive ? '+' : ''}$${unrealizedPnl.toFixed(2)}
-                                            <span class="position-percent">(${isPositive ? '+' : ''}${pnlPercent.toFixed(2)}%)</span>
+                                        <div class="position-details">
+                                            <div class="position-detail">
+                                                <span class="position-detail-label">Quantity</span>
+                                                <span class="position-detail-value">${pos.quantity.toFixed(6)}</span>
+                                            </div>
+                                            <div class="position-detail">
+                                                <span class="position-detail-label">Entry Price</span>
+                                                <span class="position-detail-value">$${pos.entry_price ? pos.entry_price.toFixed(2) : 'N/A'}</span>
+                                            </div>
+                                            <div class="position-detail">
+                                                <span class="position-detail-label">Current Price</span>
+                                                <span class="position-detail-value" style="color: ${isPositive ? 'var(--accent-green)' : 'var(--accent-red)'}">
+                                                    $${pos.current_price ? pos.current_price.toFixed(2) : 'N/A'}
+                                                </span>
+                                            </div>
+                                            <div class="position-detail">
+                                                <span class="position-detail-label">Value</span>
+                                                <span class="position-detail-value">$${(pos.current_price * pos.quantity).toFixed(2)}</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="position-details">
-                                        <div class="position-detail">
-                                            <span class="position-detail-label">Quantity</span>
-                                            <span class="position-detail-value">${pos.quantity.toFixed(6)}</span>
-                                        </div>
-                                        <div class="position-detail">
-                                            <span class="position-detail-label">Entry Price</span>
-                                            <span class="position-detail-value">$${pos.entry_price ? pos.entry_price.toFixed(2) : 'N/A'}</span>
-                                        </div>
-                                        <div class="position-detail">
-                                            <span class="position-detail-label">Current Price</span>
-                                            <span class="position-detail-value" style="color: ${isPositive ? 'var(--accent-green)' : 'var(--accent-red)'}">
-                                                $${pos.current_price ? pos.current_price.toFixed(2) : 'N/A'}
-                                            </span>
-                                        </div>
-                                        <div class="position-detail">
-                                            <span class="position-detail-label">Value</span>
-                                            <span class="position-detail-value">$${(pos.current_price * pos.quantity).toFixed(2)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('');
-                        document.getElementById('livePositions').innerHTML = positionsHtml;
-                    } else {
-                        document.getElementById('livePositions').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No active positions</div>';
-                    }
-                    
-                    // Update live trades
-                    if (status.recent_trades && status.recent_trades.length > 0) {
-                        const tradesHtml = status.recent_trades.map(trade => {
-                            const isProfit = trade.pnl >= 0;
-                            const cardClass = isProfit ? '' : 'negative';
-                            return `
-                                <div class="position-card ${cardClass}" style="padding: 12px;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <div style="display: flex; align-items: center; gap: 8px;">
-                                            <span class="position-side ${trade.side.toLowerCase()}" style="font-size: 10px; padding: 3px 6px;">
-                                                ${trade.side}
-                                            </span>
-                                            <span style="font-size: 13px; font-weight: 600;">${trade.qty.toFixed(6)} @ $${trade.price ? trade.price.toFixed(2) : 'N/A'}</span>
-                                        </div>
-                                        <div style="font-size: 15px; font-weight: 700; ${isProfit ? 'color: var(--accent-green)' : 'color: var(--accent-red)'}">
-                                            ${isProfit ? '+' : ''}$${trade.pnl.toFixed(2)}
+                                `;
+                            }).join('');
+                            document.getElementById('livePositions').innerHTML = positionsHtml;
+                        } else {
+                            document.getElementById('livePositions').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No active positions</div>';
+                        }
+                        
+                        // Update live trades
+                        if (status.recent_trades && status.recent_trades.length > 0) {
+                            const tradesHtml = status.recent_trades.map(trade => {
+                                const isProfit = trade.pnl >= 0;
+                                const cardClass = isProfit ? '' : 'negative';
+                                return `
+                                    <div class="position-card ${cardClass}" style="padding: 12px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <span class="position-side ${trade.side.toLowerCase()}" style="font-size: 10px; padding: 3px 6px;">
+                                                    ${trade.side}
+                                                </span>
+                                                <span style="font-size: 13px; font-weight: 600;">${trade.qty.toFixed(6)} @ $${trade.price ? trade.price.toFixed(2) : 'N/A'}</span>
+                                            </div>
+                                            <div style="font-size: 15px; font-weight: 700; ${isProfit ? 'color: var(--accent-green)' : 'color: var(--accent-red)'}">
+                                                ${isProfit ? '+' : ''}$${trade.pnl.toFixed(2)}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            `;
-                        }).join('');
-                        document.getElementById('liveTrades').innerHTML = tradesHtml;
-                    } else {
-                        document.getElementById('liveTrades').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No closed trades yet</div>';
+                                `;
+                            }).join('');
+                            document.getElementById('liveTrades').innerHTML = tradesHtml;
+                        } else {
+                            document.getElementById('liveTrades').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No closed trades yet</div>';
+                        }
                     }
                     
                     // Check if algorithm completed
                     if (status.completed) {
-                        clearInterval(algoUpdateInterval);
-                        showReceipt(status);
+                        clearInterval(algoUpdateIntervals[symbol]);
+                        delete algoUpdateIntervals[symbol];
+                        delete runningAlgorithms[symbol];
+                        
+                        if (symbol === currentSymbol) {
+                            showReceipt(status);
+                        }
                     }
                 }
             } catch (error) {
-                console.error('Error updating algorithm status:', error);
+                console.error(`Error updating algorithm status for ${symbol}:`, error);
             }
+        }
         }
         
         function showReceipt(status) {
@@ -2272,11 +2321,11 @@
         }
         
         function stopAlgorithm() {
-            if (runningAlgorithm && algoUpdateInterval) {
-                clearInterval(algoUpdateInterval);
+            if (runningAlgorithms[currentSymbol] && algoUpdateIntervals[currentSymbol]) {
+                clearInterval(algoUpdateIntervals[currentSymbol]);
                 
                 // Fetch final status and show receipt
-                fetch(`/api/algorithms/${runningAlgorithm.id}/status`)
+                fetch(`/api/algorithms/${runningAlgorithms[currentSymbol].id}/status`)
                     .then(res => res.json())
                     .then(data => {
                         if (data.status) {
@@ -2284,12 +2333,19 @@
                         }
                     })
                     .catch(error => console.error('Error fetching final status:', error));
+                
+                // Clean up
+                delete algoUpdateIntervals[currentSymbol];
+                delete runningAlgorithms[currentSymbol];
             }
         }
         
         function resetAlgorithm() {
-            runningAlgorithm = null;
-            algoStartTime = null;
+            // Clean up current symbol's algorithm
+            if (currentSymbol) {
+                delete runningAlgorithms[currentSymbol];
+                delete algoStartTimes[currentSymbol];
+            }
             
             // Show config form, hide receipt
             document.querySelector('.algo-config-form').style.display = 'flex';
