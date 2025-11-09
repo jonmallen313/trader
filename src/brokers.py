@@ -332,7 +332,8 @@ class AlpacaBroker(BrokerInterface):
                         side=order_side,
                         time_in_force=time_in_force
                     )
-                    self.logger.info(f"Placing {'crypto' if is_crypto else 'stock'} order: {symbol} {side} {shares:.8f if is_crypto else shares} shares")
+                    shares_str = f"{shares:.8f}" if is_crypto else f"{shares}"
+                    self.logger.info(f"Placing {'crypto' if is_crypto else 'stock'} order: {symbol} {side} {shares_str} shares")
                 else:
                     order_request = LimitOrderRequest(
                         symbol=symbol,
