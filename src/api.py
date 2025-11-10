@@ -1121,6 +1121,38 @@ async def get_algorithm_status(algo_id: str):
         return {'error': str(e)}
 
 
+@router.post("/algorithms/{algo_id}/stop")
+async def stop_algorithm(algo_id: str):
+    """Manually stop a running algorithm."""
+    try:
+        if algo_id not in algorithms:
+            return {'success': False, 'error': 'Algorithm not found'}
+        
+        algo = algorithms[algo_id]
+        
+        if algo['status'] == 'completed':
+            return {'success': False, 'error': 'Algorithm already completed'}
+        
+        # Mark as stopped
+        algo['status'] = 'completed'
+        algo['completed'] = True
+        algo['exit_reason'] = 'Manually Stopped'
+        
+        # Update database
+        try:
+            save_algorithm_session(algo)
+            logger.info(f"Algorithm {algo_id} stopped and saved to database")
+        except Exception as db_error:
+            logger.error(f"Failed to save stopped algorithm: {db_error}")
+        
+        logger.info(f"Algorithm {algo_id} manually stopped for {algo['symbol']}")
+        return {'success': True, 'algorithm': algo}
+    
+    except Exception as e:
+        logger.error(f"Error stopping algorithm: {e}")
+        return {'success': False, 'error': str(e)}
+
+
 async def get_simulated_algo_status(algo_id: str, algo: dict):
     """Simulated trading for demo purposes."""
     import random

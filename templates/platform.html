@@ -2341,15 +2341,29 @@
             if (runningAlgorithms[currentSymbol] && algoUpdateIntervals[currentSymbol]) {
                 clearInterval(algoUpdateIntervals[currentSymbol]);
                 
-                // Fetch final status and show receipt
-                fetch(`/api/algorithms/${runningAlgorithms[currentSymbol].id}/status`)
+                // Call backend API to stop the algorithm
+                fetch(`/api/algorithms/${runningAlgorithms[currentSymbol].id}/stop`, {
+                    method: 'POST'
+                })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Fetch final status and show receipt
+                            return fetch(`/api/algorithms/${runningAlgorithms[currentSymbol].id}/status`);
+                        } else {
+                            throw new Error(data.error || 'Failed to stop algorithm');
+                        }
+                    })
                     .then(res => res.json())
                     .then(data => {
                         if (data.status) {
                             showReceipt(data.status);
                         }
                     })
-                    .catch(error => console.error('Error fetching final status:', error));
+                    .catch(error => {
+                        console.error('Error stopping algorithm:', error);
+                        alert('Failed to stop algorithm: ' + error.message);
+                    });
                 
                 // Clean up
                 delete algoUpdateIntervals[currentSymbol];
