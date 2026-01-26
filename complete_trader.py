@@ -157,8 +157,10 @@ class AggressiveTrader:
     
     async def _candle_builder(self):
         """Build 1-second candlesticks."""
+        logger.info("🕯️ Candle builder starting in 2 seconds...")
         await asyncio.sleep(2)  # Wait for initial prices
         
+        candle_count = 0
         while self.running:
             try:
                 for symbol in self.symbols:
@@ -183,6 +185,10 @@ class AggressiveTrader:
                     
                     self.candles[symbol].append(candle)
                     state['candles'][symbol] = list(self.candles[symbol])
+                    
+                    candle_count += 1
+                    if candle_count % 25 == 0:  # Log every 25 candles
+                        logger.info(f"🕯️ Built {candle_count} candles | {symbol}: ${prices[-1]:.2f}")
                 
                 await self._broadcast()
                 await asyncio.sleep(1)  # Build every 1 second
@@ -193,14 +199,20 @@ class AggressiveTrader:
     
     async def _trading_engine(self):
         """AGGRESSIVE trading - actually executes."""
+        logger.info("🎯 Trading engine starting in 5 seconds...")
         await asyncio.sleep(5)  # Wait for data
         
         last_trade_time = {s: datetime.now() - timedelta(seconds=60) for s in self.symbols}
+        scan_count = 0
         
         while self.running:
             try:
+                scan_count += 1
+                
                 # Check if we can trade
                 if len(self.positions) >= self.max_positions:
+                    if scan_count % 10 == 0:
+                        logger.info(f"⏸️ Max positions reached ({self.max_positions})")
                     await asyncio.sleep(2)
                     continue
                 
@@ -226,18 +238,23 @@ class AggressiveTrader:
                     signal = self._get_signal(symbol)
                     
                     if signal:
+                        logger.info(f"📡 SIGNAL DETECTED: {symbol} {signal['side'].upper()} | Confidence: {signal['confidence']:.0%}")
                         await self._execute_trade(symbol, signal)
                         last_trade_time[symbol] = datetime.now()
+                    elif scan_count % 20 == 0:  # Log occasionally when no signal
+                        history_len = len(self.price_history.get(symbol, []))
+                        logger.info(f"🔍 Scanning {symbol} | History: {history_len} ticks | No signal")
                 
                 await asyncio.sleep(1)  # Check every second
                 
             except Exception as e:
                 logger.error(f"Trading engine error: {e}")
+                logger.exception(e)
                 await asyncio.sleep(2)
     
     def _get_signal(self, symbol: str) -> dict:
         """Generate trading signal - IMPROVED STRATEGY."""
-        if len(self.price_history[symbol]) < 30:
+        if len(self.price_history[symbol]) < 15:  # Reduced from 30 to 15
             return None
         
         history = list(self.price_history[symbol])
@@ -246,15 +263,15 @@ class AggressiveTrader:
         # Multiple timeframe analysis
         recent_5 = prices[-5:]
         recent_10 = prices[-10:]
-        older_20 = prices[-30:-10]
+        older_15 = prices[-15:-5]  # Adjusted window
         
         avg_5 = sum(recent_5) / len(recent_5)
         avg_10 = sum(recent_10) / len(recent_10)
-        avg_20 = sum(older_20) / len(older_20)
+        avg_15 = sum(older_15) / len(older_15)
         
         # Trend alignment: short MA > mid MA > long MA
         short_trend = (avg_5 - avg_10) / avg_10
-        mid_trend = (avg_10 - avg_20) / avg_20
+        mid_trend = (avg_10 - avg_15) / avg_15
         
         # Calculate volatility
         price_changes = [(prices[i] - prices[i-1]) / prices[i-1] for i in range(1, len(prices))]
@@ -368,6 +385,7 @@ class AggressiveTrader:
     
     async def _position_monitor(self):
         """Monitor and close positions."""
+        logger.info("👁️ Position monitor starting in 10 seconds...")
         await asyncio.sleep(10)
         
         while self.running:
