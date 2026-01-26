@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 import json
 from collections import deque
+import sqlite3
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -43,9 +45,13 @@ class AggressiveTrader:
     """Trading engine that ACTUALLY TRADES."""
     
     def __init__(self):
-        self.balance = 100.0
+        # Load persistent state
+        self.db_path = Path('trader_state.db')
+        self._init_database()
+        
+        self.balance = self._load_balance()
         self.positions = []
-        self.trades = []
+        self.trades = self._load_trades()
         self.running = False
         
         # Candle data for charts (1-second bars)
@@ -63,10 +69,123 @@ class AggressiveTrader:
         
         # Trading params
         self.symbols = list(self.candles.keys())
-        self.position_size_pct = 0.20  # 20% per trade - aggressive
-        self.max_positions = 15
+        self.position_size_pct = 0.10  # 10% per trade to allow more positions
+        self.max_positions = 30  # Increased from 15 to maximize profit
         self.trade_interval = 2  # Trade every 2 seconds - very aggressive
         
+    def _init_database(self):
+        """Initialize SQLite database for persistence."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Balance table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS balance (
+                id INTEGER PRIMARY KEY,
+                amount REAL,
+                updated_at TEXT
+            )
+        ''')
+        
+        # Trades table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT,
+                side TEXT,
+                entry_price REAL,
+                close_price REAL,
+                shares REAL,
+                value REAL,
+                pnl REAL,
+                reason TEXT,
+                opened_at TEXT,
+                closed_at TEXT,
+                alpaca_order_id TEXT
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info("💾 Database initialized")
+    
+    def _load_balance(self) -> float:
+        """Load balance from database or start with $100."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT amount FROM balance ORDER BY id DESC LIMIT 1')
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            balance = row[0]
+            logger.info(f"💰 Loaded balance: ${balance:.2f}")
+            return balance
+        else:
+            logger.info("💰 Starting with $100.00")
+            return 100.0
+    
+    def _save_balance(self):
+        """Save current balance to database."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('INSERT INTO balance (amount, updated_at) VALUES (?, ?)',
+                      (self.balance, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+    
+    def _load_trades(self) -> list:
+        """Load recent trades from database."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT symbol, side, entry_price, close_price, shares, value, pnl, reason, opened_at, closed_at
+            FROM trades ORDER BY id DESC LIMIT 50
+        ''')
+        rows = cursor.fetchall()
+        conn.close()
+        
+        trades = []
+        for row in rows:
+            trades.append({
+                'symbol': row[0],
+                'side': row[1],
+                'entry_price': row[2],
+                'close_price': row[3],
+                'shares': row[4],
+                'value': row[5],
+                'pnl': row[6],
+                'reason': row[7],
+                'opened_at': row[8],
+                'closed_at': row[9]
+            })
+        
+        logger.info(f"📊 Loaded {len(trades)} historical trades")
+        return trades
+    
+    def _save_trade(self, trade: dict):
+        """Save completed trade to database."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO trades (symbol, side, entry_price, close_price, shares, value, pnl, reason, opened_at, closed_at, alpaca_order_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            trade['symbol'],
+            trade['side'],
+            trade['entry_price'],
+            trade.get('close_price'),
+            trade['shares'],
+            trade['value'],
+            trade.get('pnl', 0),
+            trade.get('reason', ''),
+            trade['opened_at'],
+            trade.get('closed_at'),
+            trade.get('alpaca_order_id')
+        ))
+        conn.commit()
+        conn.close()
+    
     async def start(self):
         """Start aggressive trading."""
         logger.info("🚀 STARTING AGGRESSIVE TRADER")
@@ -422,6 +541,15 @@ class AggressiveTrader:
                     if not current_price:
                         continue
                     
+                    # UPDATE LIVE P&L
+                    position['current_price'] = current_price
+                    if position['side'] == 'long':
+                        pnl_pct = (current_price - position['entry_price']) / position['entry_price']
+                    else:
+                        pnl_pct = (position['entry_price'] - current_price) / position['entry_price']
+                    position['pnl'] = position['value'] * pnl_pct
+                    position['pnl_pct'] = pnl_pct * 100
+                    
                     should_close = False
                     reason = ""
                     
@@ -470,12 +598,17 @@ class AggressiveTrader:
                 **position,
                 'close_price': close_price,
                 'pnl': pnl,
+                'pnl_pct': pnl_pct * 100,
                 'reason': reason,
                 'closed_at': datetime.now().isoformat()
             }
             
-            self.trades.append(trade)
-            state['trades'] = self.trades[-50:]  # Keep last 50
+            self.trades.insert(0, trade)  # Add to front
+            state['trades'] = self.trades[:50]  # Keep last 50
+            
+            # Save to database
+            self._save_trade(trade)
+            self._save_balance()
             
             self.positions.remove(position)
             state['positions'] = self.positions
@@ -544,6 +677,7 @@ HTML = """
 <head>
     <title>willAIm</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.2.1"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: monospace; background: #000; color: #0f0; padding: 20px; }
@@ -652,17 +786,22 @@ HTML = """
                     const position = (data.positions || []).find(p => p.symbol === symbol);
                     const direction = position ? position.side.toUpperCase() : 'LONG';
                     const dirColor = position && position.side === 'long' ? '#0f0' : '#f0f';
+                    const pnl = position ? (position.pnl || 0) : 0;
+                    const panelColor = pnl >= 0 ? '#003300' : '#330000';  // Green background for profit, red for loss
                     
                     const box = document.createElement('div');
                     box.className = 'chart-box';
                     box.id = `chart-${symbol}`;
-                    box.innerHTML = `<h3>${symbol} <span style="color: ${dirColor}; border: 1px solid ${dirColor}; padding: 2px 8px; border-radius: 3px; font-size: 0.8em;">${direction}</span></h3>`;
+                    box.style.backgroundColor = panelColor;
+                    box.innerHTML = `<h3>${symbol} <span style="color: ${dirColor}; border: 1px solid ${dirColor}; padding: 2px 8px; border-radius: 3px; font-size: 0.8em;">${direction}</span> <span style="color: ${pnl >= 0 ? '#0f0' : '#f00'}; font-size: 0.7em;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</span></h3>`;
                     
                     const canvas = document.createElement('canvas');
                     box.appendChild(canvas);
                     chartsContainer.appendChild(box);
                     
                     chartCanvases[symbol] = canvas;
+                    
+                    const entryPrice = position ? position.entry_price : 0;
                     
                     charts[symbol] = new Chart(canvas, {
                         type: 'line',
@@ -680,7 +819,26 @@ HTML = """
                             responsive: true,
                             maintainAspectRatio: false,
                             plugins: {
-                                legend: { labels: { color: '#0f0' } }
+                                legend: { labels: { color: '#0f0' } },
+                                annotation: {
+                                    annotations: {
+                                        entryLine: {
+                                            type: 'line',
+                                            yMin: entryPrice,
+                                            yMax: entryPrice,
+                                            borderColor: '#ff0',
+                                            borderWidth: 2,
+                                            borderDash: [5, 5],
+                                            label: {
+                                                content: `Entry: $${entryPrice.toFixed(2)}`,
+                                                enabled: true,
+                                                position: 'start',
+                                                backgroundColor: 'rgba(255, 255, 0, 0.8)',
+                                                color: '#000'
+                                            }
+                                        }
+                                    }
+                                }
                             },
                             scales: {
                                 x: { ticks: { color: '#0f0' }, grid: { color: '#003300' } },
@@ -690,12 +848,26 @@ HTML = """
                     });
                 }
                 
-                // Update chart data
+                // Update chart data and panel color based on P&L
                 if (data.candles && data.candles[symbol]) {
                     const candles = data.candles[symbol].slice(-60); // Last 60 seconds
                     charts[symbol].data.labels = candles.map((c, i) => i);
                     charts[symbol].data.datasets[0].data = candles.map(c => c.close);
                     charts[symbol].update('none');
+                    
+                    // Update panel background based on current P&L
+                    const position = (data.positions || []).find(p => p.symbol === symbol);
+                    if (position) {
+                        const pnl = position.pnl || 0;
+                        const panelColor = pnl >= 0 ? '#003300' : '#330000';
+                        const chartBox = document.getElementById(`chart-${symbol}`);
+                        if (chartBox) {
+                            chartBox.style.backgroundColor = panelColor;
+                            // Update P&L in header
+                            const dirColor = position.side === 'long' ? '#0f0' : '#f0f';
+                            chartBox.querySelector('h3').innerHTML = `${symbol} <span style="color: ${dirColor}; border: 1px solid ${dirColor}; padding: 2px 8px; border-radius: 3px; font-size: 0.8em;">${position.side.toUpperCase()}</span> <span style="color: ${pnl >= 0 ? '#0f0' : '#f00'}; font-size: 0.7em;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</span>`;
+                        }
+                    }
                 }
             });
             
@@ -719,20 +891,19 @@ HTML = """
             
             container.innerHTML = `
                 <table>
-                    <tr><th>Symbol</th><th>Side</th><th>Entry</th><th>Current</th><th>P&L</th><th>TP</th><th>SL</th></tr>
+                    <tr><th>Symbol</th><th>Side</th><th>Entry</th><th>Current</th><th>P&L</th><th>P&L %</th><th>TP</th><th>SL</th></tr>
                     ${positions.map(p => {
-                        const current = (window.lastPrices && window.lastPrices[p.symbol]) || p.entry_price;
-                        const pnl = p.side === 'long' 
-                            ? (current - p.entry_price) * p.shares
-                            : (p.entry_price - current) * p.shares;
+                        const pnl = p.pnl || 0;
+                        const pnlPct = p.pnl_pct || 0;
                         const pnlClass = pnl >= 0 ? 'positive' : 'negative';
                         return `
                             <tr>
                                 <td>${p.symbol}</td>
                                 <td>${p.side.toUpperCase()}</td>
                                 <td>$${p.entry_price.toFixed(2)}</td>
-                                <td>$${current.toFixed(2)}</td>
+                                <td>$${(p.current_price || p.entry_price).toFixed(2)}</td>
                                 <td class="${pnlClass}">$${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</td>
+                                <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
                                 <td>$${p.tp_price.toFixed(2)}</td>
                                 <td>$${p.sl_price.toFixed(2)}</td>
                             </tr>
@@ -749,13 +920,15 @@ HTML = """
                 return;
             }
             
-            const recent = trades.slice(-10).reverse();
+            const recent = trades.slice(0, 10);  // Already reversed in backend
             container.innerHTML = `
                 <table>
-                    <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Reason</th></tr>
+                    <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&L</th><th>P&L %</th><th>Reason</th></tr>
                     ${recent.map(t => {
                         const time = new Date(t.closed_at).toLocaleTimeString();
-                        const pnlClass = t.pnl >= 0 ? 'positive' : 'negative';
+                        const pnl = t.pnl || 0;
+                        const pnlPct = t.pnl_pct || 0;
+                        const pnlClass = pnl >= 0 ? 'positive' : 'negative';
                         return `
                             <tr>
                                 <td>${time}</td>
@@ -763,7 +936,8 @@ HTML = """
                                 <td>${t.side.toUpperCase()}</td>
                                 <td>$${t.entry_price.toFixed(2)}</td>
                                 <td>$${t.close_price.toFixed(2)}</td>
-                                <td class="${pnlClass}">$${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</td>
+                                <td class="${pnlClass}">$${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</td>
+                                <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
                                 <td>${t.reason}</td>
                             </tr>
                         `;
