@@ -758,7 +758,9 @@ DASHBOARD_HTML = """
     </div>
     
     <script>
-        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        // Auto-detect WebSocket protocol (ws:// for local, wss:// for HTTPS)
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
         
         ws.onopen = () => {
             document.getElementById('status').textContent = 'Live Trading Active';
