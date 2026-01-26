@@ -26,4 +26,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8080/health', timeout=5)"
 
 # Start application
-CMD ["python", "railway_app.py"]
+CMD ["python", "complete_trader.py"]
