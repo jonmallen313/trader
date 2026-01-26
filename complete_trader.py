@@ -50,11 +50,11 @@ class AggressiveTrader:
         
         # Candle data for charts (1-second bars)
         self.candles = {
-            'BTC/USD': deque(maxlen=300),   # 5 min of 1s candles
-            'ETH/USD': deque(maxlen=300),
-            'SOL/USD': deque(maxlen=300),
-            'AVAX/USD': deque(maxlen=300),
-            'DOGE/USD': deque(maxlen=300)
+            'BTCUSD': deque(maxlen=300),   # 5 min of 1s candles
+            'ETHUSD': deque(maxlen=300),
+            'SOLUSD': deque(maxlen=300),
+            'AVAXUSD': deque(maxlen=300),
+            'DOGEUSD': deque(maxlen=300)
         }
         
         # Price tracking
@@ -86,9 +86,7 @@ class AggressiveTrader:
             logger.exception(e)
     
     async def _price_feed(self):
-        """Stream REAL-TIME crypto prices from Alpaca crypto WebSocket (24/7)."""
-        import json
-        
+        """Fetch REAL crypto prices via HTTP - simpler and more reliable."""
         api_key = os.getenv('ALPACA_API_KEY', '')
         api_secret = os.getenv('ALPACA_API_SECRET', '')
         
@@ -97,56 +95,35 @@ class AggressiveTrader:
             self.running = False
             return
         
-        logger.info("📡 Connecting to Alpaca CRYPTO WebSocket (24/7 live data)...")
+        logger.info("📡 Fetching LIVE crypto prices from Alpaca...")
         
-        # Alpaca Crypto WebSocket
-        ws_url = 'wss://stream.data.alpaca.markets/v1beta3/crypto/us'
+        data_url = 'https://data.alpaca.markets'
+        headers = {
+            'APCA-API-KEY-ID': api_key,
+            'APCA-API-SECRET-KEY': api_secret
+        }
+        
+        tick_count = 0
         
         while self.running:
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.ws_connect(ws_url) as ws:
-                        logger.info("✅ Crypto WebSocket connected")
-                        
-                        # Authenticate
-                        auth_msg = {
-                            "action": "auth",
-                            "key": api_key,
-                            "secret": api_secret
-                        }
-                        await ws.send_str(json.dumps(auth_msg))
-                        
-                        # Wait for auth response
-                        auth_resp = await ws.receive()
-                        logger.info(f"🔐 Auth: {auth_resp.data}")
-                        
-                        # Subscribe to all crypto pairs
-                        subscribe_msg = {
-                            "action": "subscribe",
-                            "trades": self.symbols,
-                            "quotes": self.symbols
-                        }
-                        await ws.send_str(json.dumps(subscribe_msg))
-                        logger.info(f"📊 Subscribed to: {', '.join(self.symbols)}")
-                        
-                        # Stream real-time crypto data
-                        async for msg in ws:
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                data = json.loads(msg.data)
-                                
-                                for item in data:
-                                    msg_type = item.get('T')
-                                    
-                                    # Trade update
-                                    if msg_type == 't':
-                                        symbol = item['S']
-                                        price = float(item['p'])
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    for symbol in self.symbols:
+                        try:
+                            # Get latest crypto trade
+                            url = f'{data_url}/v1beta3/crypto/us/latest/trades?symbols={symbol}'
+                            async with session.get(url, headers=headers) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    trades = data.get('trades', {})
+                                    if symbol in trades:
+                                        price = float(trades[symbol]['p'])
                                         
                                         self.last_prices[symbol] = price
                                         self.price_history[symbol].append({
                                             'price': price,
-                                            'time': datetime.now().isoformat(),
-                                            'size': item['s']
+                                            'time': datetime.now().isoformat()
                                         })
                                         
                                         state['market_prices'][symbol] = {
@@ -154,39 +131,19 @@ class AggressiveTrader:
                                             'timestamp': datetime.now().isoformat()
                                         }
                                         
-                                        logger.info(f"💰 {symbol}: ${price:.2f}")
-                                        await self._broadcast()
-                                    
-                                    # Quote update
-                                    elif msg_type == 'q':
-                                        symbol = item['S']
-                                        bid = float(item['bp'])
-                                        ask = float(item['ap'])
-                                        price = (bid + ask) / 2
-                                        
-                                        self.last_prices[symbol] = price
-                                        self.price_history[symbol].append({
-                                            'price': price,
-                                            'time': datetime.now().isoformat(),
-                                            'bid': bid,
-                                            'ask': ask
-                                        })
-                                        
-                                        state['market_prices'][symbol] = {
-                                            'price': price,
-                                            'timestamp': datetime.now().isoformat()
-                                        }
-                                        
-                                        await self._broadcast()
-                            
-                            elif msg.type == aiohttp.WSMsgType.ERROR:
-                                logger.error(f"WebSocket error: {ws.exception()}")
-                                break
+                                        tick_count += 1
+                                        if tick_count % 25 == 0:
+                                            logger.info(f"💰 {symbol}: ${price:,.2f}")
+                                else:
+                                    logger.error(f"Failed {symbol}: {resp.status}")
+                        except Exception as e:
+                            logger.error(f"Error {symbol}: {e}")
+                
+                await self._broadcast()
+                await asyncio.sleep(1)
                 
             except Exception as e:
-                logger.error(f"💥 WebSocket error: {e}")
-                logger.exception(e)
-                logger.info("🔄 Reconnecting in 5 seconds...")
+                logger.error(f"💥 Price feed error: {e}")
                 await asyncio.sleep(5)
     
     async def _candle_builder(self):
