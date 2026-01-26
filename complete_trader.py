@@ -86,73 +86,107 @@ class AggressiveTrader:
             logger.exception(e)
     
     async def _price_feed(self):
-        """Fetch REAL-TIME stock prices from Alpaca API."""
-        # Get API keys from environment
+        """Stream REAL-TIME stock prices from Alpaca WebSocket."""
+        import json
+        
         api_key = os.getenv('ALPACA_API_KEY', '')
         api_secret = os.getenv('ALPACA_API_SECRET', '')
         
         if not api_key or not api_secret:
-            logger.error("❌ NO ALPACA API KEYS - Cannot fetch real market data")
-            logger.error("Set ALPACA_API_KEY and ALPACA_API_SECRET environment variables")
+            logger.error("❌ NO ALPACA API KEYS")
             self.running = False
             return
         
-        # Alpaca market data API (separate from trading API)
-        data_url = 'https://data.alpaca.markets'
-        headers = {
-            'APCA-API-KEY-ID': api_key,
-            'APCA-API-SECRET-KEY': api_secret
-        }
+        logger.info("📡 Connecting to Alpaca WebSocket for LIVE market data...")
         
-        logger.info("📡 Connecting to Alpaca for REAL market data...")
-        first_success = False
+        # Alpaca WebSocket for real-time stock data
+        ws_url = 'wss://stream.data.alpaca.markets/v2/iex'
         
         while self.running:
             try:
-                # 10-second timeout on all requests
-                timeout = aiohttp.ClientTimeout(total=10)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    for symbol in self.symbols:
-                        try:
-                            # Try latest bars first (works even when market is closed - gets last trading day data)
-                            url = f'{data_url}/v2/stocks/{symbol}/bars/latest'
-                            async with session.get(url, headers=headers) as resp:
-                                if resp.status == 200:
-                                    data = await resp.json()
-                                    bar = data['bar']
-                                    # Use close price from latest bar
-                                    price = float(bar['c'])
+                async with aiohttp.ClientSession() as session:
+                    async with session.ws_connect(ws_url) as ws:
+                        logger.info("✅ WebSocket connected to Alpaca")
+                        
+                        # Authenticate
+                        auth_msg = {
+                            "action": "auth",
+                            "key": api_key,
+                            "secret": api_secret
+                        }
+                        await ws.send_str(json.dumps(auth_msg))
+                        
+                        # Wait for auth response
+                        auth_resp = await ws.receive()
+                        logger.info(f"🔐 Auth response: {auth_resp.data}")
+                        
+                        # Subscribe to trades for all symbols
+                        subscribe_msg = {
+                            "action": "subscribe",
+                            "trades": self.symbols,
+                            "quotes": self.symbols
+                        }
+                        await ws.send_str(json.dumps(subscribe_msg))
+                        logger.info(f"📊 Subscribed to: {', '.join(self.symbols)}")
+                        
+                        # Stream real-time data
+                        async for msg in ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                data = json.loads(msg.data)
+                                
+                                for item in data:
+                                    msg_type = item.get('T')
                                     
-                                    if not first_success:
-                                        logger.info(f"✅ Received data for {symbol}: ${price:.2f}")
-                                        first_success = True
+                                    # Trade update
+                                    if msg_type == 't':
+                                        symbol = item['S']
+                                        price = float(item['p'])
+                                        
+                                        self.last_prices[symbol] = price
+                                        self.price_history[symbol].append({
+                                            'price': price,
+                                            'time': datetime.now().isoformat(),
+                                            'volume': item['s']
+                                        })
+                                        
+                                        state['market_prices'][symbol] = {
+                                            'price': price,
+                                            'timestamp': datetime.now().isoformat()
+                                        }
+                                        
+                                        logger.info(f"📈 {symbol}: ${price:.2f}")
+                                        await self._broadcast()
                                     
-                                    self.last_prices[symbol] = price
-                                    self.price_history[symbol].append({
-                                        'price': price,
-                                        'time': datetime.now().isoformat(),
-                                        'open': float(bar['o']),
-                                        'high': float(bar['h']),
-                                        'low': float(bar['l']),
-                                        'volume': int(bar['v'])
-                                    })
-                                    
-                                    state['market_prices'][symbol] = {
-                                        'price': price,
-                                        'timestamp': datetime.now().isoformat()
-                                    }
-                                else:
-                                    error_text = await resp.text()
-                                    logger.error(f"❌ Failed to fetch {symbol}: {resp.status} - {error_text}")
-                        except Exception as e:
-                            logger.error(f"❌ Error fetching {symbol}: {e}")
-                
-                await self._broadcast()
-                await asyncio.sleep(1)  # Update every second
+                                    # Quote update
+                                    elif msg_type == 'q':
+                                        symbol = item['S']
+                                        bid = float(item['bp'])
+                                        ask = float(item['ap'])
+                                        price = (bid + ask) / 2
+                                        
+                                        self.last_prices[symbol] = price
+                                        self.price_history[symbol].append({
+                                            'price': price,
+                                            'time': datetime.now().isoformat(),
+                                            'bid': bid,
+                                            'ask': ask
+                                        })
+                                        
+                                        state['market_prices'][symbol] = {
+                                            'price': price,
+                                            'timestamp': datetime.now().isoformat()
+                                        }
+                                        
+                                        await self._broadcast()
+                            
+                            elif msg.type == aiohttp.WSMsgType.ERROR:
+                                logger.error(f"WebSocket error: {ws.exception()}")
+                                break
                 
             except Exception as e:
-                logger.error(f"💥 Price feed critical error: {e}")
+                logger.error(f"💥 WebSocket error: {e}")
                 logger.exception(e)
+                logger.info("🔄 Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
     
     async def _candle_builder(self):
