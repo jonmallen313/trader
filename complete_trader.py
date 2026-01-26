@@ -63,9 +63,9 @@ class AggressiveTrader:
         
         # Trading params
         self.symbols = list(self.candles.keys())
-        self.position_size_pct = 0.10  # 10% per trade (more positions)
+        self.position_size_pct = 0.20  # 20% per trade - aggressive
         self.max_positions = 15
-        self.trade_interval = 5  # Trade every 5 seconds
+        self.trade_interval = 2  # Trade every 2 seconds - very aggressive
         
     async def start(self):
         """Start aggressive trading."""
@@ -298,14 +298,14 @@ class AggressiveTrader:
             position_value = self.balance * self.position_size_pct
             entry_price = signal['entry_price']
             
-            # BETTER TP/SL ratios - wider TP, tighter SL
-            tp_pct = 0.015  # 1.5% TP (was 1%)
-            sl_pct = 0.008  # 0.8% SL (was 0.5%)
+            # SCALPING TP/SL - very tight for tiny movements
+            tp_pct = 0.005  # 0.5% TP
+            sl_pct = 0.003  # 0.3% SL
             
             # Adjust based on confidence
             if signal['confidence'] > 0.7:
-                tp_pct = 0.02   # 2% for high confidence
-                sl_pct = 0.01   # 1% SL
+                tp_pct = 0.008   # 0.8% for high confidence
+                sl_pct = 0.004   # 0.4% SL
             
             if signal['side'] == 'long':
                 tp_price = entry_price * (1 + tp_pct)
