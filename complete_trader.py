@@ -50,11 +50,11 @@ class AggressiveTrader:
         
         # Candle data for charts (1-second bars)
         self.candles = {
-            'BTCUSD': deque(maxlen=300),   # 5 min of 1s candles
-            'ETHUSD': deque(maxlen=300),
-            'SOLUSD': deque(maxlen=300),
-            'AVAXUSD': deque(maxlen=300),
-            'DOGEUSD': deque(maxlen=300)
+            'BTC/USD': deque(maxlen=300),   # 5 min of 1s candles
+            'ETH/USD': deque(maxlen=300),
+            'SOL/USD': deque(maxlen=300),
+            'AVAX/USD': deque(maxlen=300),
+            'DOGE/USD': deque(maxlen=300)
         }
         
         # Price tracking
