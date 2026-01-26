@@ -86,66 +86,75 @@ class AggressiveTrader:
             logger.exception(e)
     
     async def _price_feed(self):
-        """Stream REAL-TIME crypto prices from Binance WebSocket (completely free, unlimited)."""
+        """Stream REAL-TIME crypto prices from Kraken WebSocket (no geo-restrictions)."""
         import json
         
-        logger.info("📡 Connecting to Binance WebSocket for TRUE real-time data...")
+        logger.info("📡 Connecting to Kraken WebSocket for real-time data...")
         
-        # Binance WebSocket streams - no API key needed for market data!
-        streams = {
-            'BTC/USD': 'btcusdt@trade',
-            'ETH/USD': 'ethusdt@trade', 
-            'SOL/USD': 'solusdt@trade',
-            'AVAX/USD': 'avaxusdt@trade',
-            'DOGE/USD': 'dogeusdt@trade'
+        # Kraken WebSocket - works globally, no API key needed
+        ws_url = 'wss://ws.kraken.com'
+        
+        # Map our symbols to Kraken pairs
+        kraken_pairs = {
+            'BTC/USD': 'XBT/USD',
+            'ETH/USD': 'ETH/USD',
+            'SOL/USD': 'SOL/USD',
+            'AVAX/USD': 'AVAX/USD',
+            'DOGE/USD': 'DOGE/USD'
         }
         
-        # Build WebSocket URL for all streams
-        stream_names = '/'.join(streams.values())
-        ws_url = f'wss://stream.binance.com:9443/stream?streams={stream_names}'
-        
-        logger.info(f"🔗 Connecting to: {ws_url[:100]}...")
+        pair_names = list(kraken_pairs.values())
         
         while self.running:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.ws_connect(ws_url) as ws:
-                        logger.info("✅ Connected to Binance - streaming LIVE prices!")
+                        logger.info("✅ Connected to Kraken WebSocket")
+                        
+                        # Subscribe to ticker for all pairs
+                        subscribe_msg = {
+                            "event": "subscribe",
+                            "pair": pair_names,
+                            "subscription": {"name": "ticker"}
+                        }
+                        await ws.send_str(json.dumps(subscribe_msg))
+                        logger.info(f"📊 Subscribed to {len(pair_names)} pairs")
                         
                         tick_count = 0
                         async for msg in ws:
                             if msg.type == aiohttp.WSMsgType.TEXT:
                                 data = json.loads(msg.data)
                                 
-                                if 'data' in data:
-                                    trade = data['data']
+                                # Ticker updates are arrays
+                                if isinstance(data, list) and len(data) >= 4:
+                                    ticker = data[1]
+                                    pair_name = data[3]
                                     
-                                    # Map stream to our symbol format
-                                    stream_name = data['stream']
-                                    symbol = None
-                                    for s, stream in streams.items():
-                                        if stream == stream_name:
-                                            symbol = s
+                                    # Find our symbol
+                                    our_symbol = None
+                                    for symbol, kraken_pair in kraken_pairs.items():
+                                        if kraken_pair == pair_name:
+                                            our_symbol = symbol
                                             break
                                     
-                                    if symbol:
-                                        price = float(trade['p'])
+                                    if our_symbol and 'c' in ticker:
+                                        # 'c' is last close price [price, volume]
+                                        price = float(ticker['c'][0])
                                         
-                                        self.last_prices[symbol] = price
-                                        self.price_history[symbol].append({
+                                        self.last_prices[our_symbol] = price
+                                        self.price_history[our_symbol].append({
                                             'price': price,
-                                            'time': datetime.now().isoformat(),
-                                            'trade_id': trade['t']
+                                            'time': datetime.now().isoformat()
                                         })
                                         
-                                        state['market_prices'][symbol] = {
+                                        state['market_prices'][our_symbol] = {
                                             'price': price,
                                             'timestamp': datetime.now().isoformat()
                                         }
                                         
                                         tick_count += 1
-                                        if tick_count % 100 == 0:
-                                            logger.info(f"💰 {symbol}: ${price:,.4f} | {tick_count} ticks received")
+                                        if tick_count % 50 == 0:
+                                            logger.info(f"💰 {our_symbol}: ${price:,.2f} | {tick_count} ticks")
                                         
                                         await self._broadcast()
                             
@@ -154,7 +163,7 @@ class AggressiveTrader:
                                 break
                 
             except Exception as e:
-                logger.error(f"💥 Binance WebSocket error: {e}")
+                logger.error(f"💥 Kraken WebSocket error: {e}")
                 logger.info("🔄 Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
     
