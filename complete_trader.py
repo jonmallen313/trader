@@ -391,9 +391,17 @@ class AggressiveTrader:
                         logger.info(f"📡 SIGNAL DETECTED: {symbol} {signal['side'].upper()} | Confidence: {signal['confidence']:.0%}")
                         await self._execute_trade(symbol, signal)
                         last_trade_time[symbol] = datetime.now()
-                    elif scan_count % 20 == 0:  # Log occasionally when no signal
+                    elif scan_count % 40 == 0:  # Log debug info occasionally
                         history_len = len(self.price_history.get(symbol, []))
-                        logger.info(f"🔍 Scanning {symbol} | History: {history_len} ticks | No signal")
+                        if history_len >= 30:
+                            # Show why no signal
+                            prices = np.array([p['price'] for p in self.price_history[symbol]])
+                            features = self._calculate_features(prices)
+                            if features:
+                                rsi, macd, bb_pos, trend = features[:4]
+                                logger.info(f"🔍 {symbol} ({history_len} ticks) | RSI:{rsi:.1f} MACD:{macd:.5f} BB:{bb_pos:.2f} Trend:{trend:.5f}")
+                        else:
+                            logger.info(f"🔍 {symbol} | Waiting for data: {history_len}/30 ticks")
                 
                 await asyncio.sleep(1)  # Check every second
                 
@@ -447,19 +455,33 @@ class AggressiveTrader:
             # FALLBACK: Technical analysis (better than moving averages)
             rsi, macd, bb_position, trend_strength = features[:4]
             
-            # Strong bullish: RSI oversold + MACD positive + price near lower BB + strong uptrend
-            if rsi < 35 and macd > 0 and bb_position < 0.3 and trend_strength > 0.002:
-                confidence = min((40 - rsi) / 20 + abs(macd) * 10 + trend_strength * 100, 0.85)
-                if confidence > 0.6:
-                    logger.info(f"📊 TECHNICAL LONG: {symbol} | RSI:{rsi:.1f} MACD:{macd:.4f} | Conf:{confidence*100:.1f}%")
-                    return {'side': 'long', 'entry_price': prices[-1], 'confidence': confidence}
+            # LONG CONDITIONS (more realistic - at least 2 of 3 must align)
+            bullish_signals = 0
+            if rsi < 45:  # RSI oversold or neutral (was 35)
+                bullish_signals += 1
+            if macd > -0.0005:  # MACD positive or neutral (was > 0)
+                bullish_signals += 1
+            if bb_position < 0.5 and trend_strength > 0:  # Price in lower half + uptrend (was 0.3 and 0.002)
+                bullish_signals += 1
             
-            # Strong bearish: RSI overbought + MACD negative + price near upper BB + strong downtrend
-            elif rsi > 65 and macd < 0 and bb_position > 0.7 and trend_strength < -0.002:
-                confidence = min((rsi - 60) / 20 + abs(macd) * 10 + abs(trend_strength) * 100, 0.85)
-                if confidence > 0.6:
-                    logger.info(f"📊 TECHNICAL SHORT: {symbol} | RSI:{rsi:.1f} MACD:{macd:.4f} | Conf:{confidence*100:.1f}%")
-                    return {'side': 'short', 'entry_price': prices[-1], 'confidence': confidence}
+            if bullish_signals >= 2:
+                confidence = min(0.5 + (3 - bullish_signals) * 0.1 + abs(trend_strength) * 50, 0.85)
+                logger.info(f"📈 TECHNICAL LONG: {symbol} | RSI:{rsi:.1f} MACD:{macd:.5f} BB:{bb_position:.2f} Trend:{trend_strength:.5f} | Conf:{confidence*100:.1f}%")
+                return {'side': 'long', 'entry_price': prices[-1], 'confidence': confidence}
+            
+            # SHORT CONDITIONS (more realistic - at least 2 of 3 must align)
+            bearish_signals = 0
+            if rsi > 55:  # RSI overbought or neutral (was 65)
+                bearish_signals += 1
+            if macd < 0.0005:  # MACD negative or neutral (was < 0)
+                bearish_signals += 1
+            if bb_position > 0.5 and trend_strength < 0:  # Price in upper half + downtrend (was 0.7 and -0.002)
+                bearish_signals += 1
+            
+            if bearish_signals >= 2:
+                confidence = min(0.5 + (3 - bearish_signals) * 0.1 + abs(trend_strength) * 50, 0.85)
+                logger.info(f"📉 TECHNICAL SHORT: {symbol} | RSI:{rsi:.1f} MACD:{macd:.5f} BB:{bb_position:.2f} Trend:{trend_strength:.5f} | Conf:{confidence*100:.1f}%")
+                return {'side': 'short', 'entry_price': prices[-1], 'confidence': confidence}
         
         return None
     
