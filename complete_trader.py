@@ -86,81 +86,76 @@ class AggressiveTrader:
             logger.exception(e)
     
     async def _price_feed(self):
-        """Fetch REAL crypto quotes (bid/ask) which update constantly."""
-        api_key = os.getenv('ALPACA_API_KEY', '')
-        api_secret = os.getenv('ALPACA_API_SECRET', '')
+        """Stream REAL-TIME crypto prices from Binance WebSocket (completely free, unlimited)."""
+        import json
         
-        if not api_key or not api_secret:
-            logger.error("❌ NO ALPACA API KEYS")
-            self.running = False
-            return
+        logger.info("📡 Connecting to Binance WebSocket for TRUE real-time data...")
         
-        logger.info("📡 Fetching LIVE crypto quotes from Alpaca...")
-        
-        data_url = 'https://data.alpaca.markets'
-        headers = {
-            'APCA-API-KEY-ID': api_key,
-            'APCA-API-SECRET-KEY': api_secret
+        # Binance WebSocket streams - no API key needed for market data!
+        streams = {
+            'BTC/USD': 'btcusdt@trade',
+            'ETH/USD': 'ethusdt@trade', 
+            'SOL/USD': 'solusdt@trade',
+            'AVAX/USD': 'avaxusdt@trade',
+            'DOGE/USD': 'dogeusdt@trade'
         }
         
-        tick_count = 0
-        first_log = True
+        # Build WebSocket URL for all streams
+        stream_names = '/'.join(streams.values())
+        ws_url = f'wss://stream.binance.com:9443/stream?streams={stream_names}'
+        
+        logger.info(f"🔗 Connecting to: {ws_url[:100]}...")
         
         while self.running:
             try:
-                timeout = aiohttp.ClientTimeout(total=5)
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    for symbol in self.symbols:
-                        try:
-                            # Get latest QUOTES (bid/ask) - updates way more frequently than trades
-                            url = f'{data_url}/v1beta3/crypto/us/latest/quotes?symbols={symbol}'
-                            async with session.get(url, headers=headers) as resp:
-                                if resp.status == 200:
-                                    data = await resp.json()
+                async with aiohttp.ClientSession() as session:
+                    async with session.ws_connect(ws_url) as ws:
+                        logger.info("✅ Connected to Binance - streaming LIVE prices!")
+                        
+                        tick_count = 0
+                        async for msg in ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                data = json.loads(msg.data)
+                                
+                                if 'data' in data:
+                                    trade = data['data']
                                     
-                                    if first_log:
-                                        logger.info(f"📥 QUOTE DATA: {json.dumps(data, indent=2)[:500]}")
-                                        first_log = False
+                                    # Map stream to our symbol format
+                                    stream_name = data['stream']
+                                    symbol = None
+                                    for s, stream in streams.items():
+                                        if stream == stream_name:
+                                            symbol = s
+                                            break
                                     
-                                    quotes = data.get('quotes', {})
-                                    if symbol in quotes:
-                                        quote_data = quotes[symbol]
-                                        bid = float(quote_data['bp'])
-                                        ask = float(quote_data['ap'])
-                                        price = (bid + ask) / 2  # Mid-price
-                                        timestamp = quote_data.get('t', '')
+                                    if symbol:
+                                        price = float(trade['p'])
                                         
                                         self.last_prices[symbol] = price
                                         self.price_history[symbol].append({
                                             'price': price,
                                             'time': datetime.now().isoformat(),
-                                            'quote_time': timestamp,
-                                            'bid': bid,
-                                            'ask': ask
+                                            'trade_id': trade['t']
                                         })
                                         
                                         state['market_prices'][symbol] = {
                                             'price': price,
-                                            'timestamp': datetime.now().isoformat(),
-                                            'quote_timestamp': timestamp
+                                            'timestamp': datetime.now().isoformat()
                                         }
                                         
                                         tick_count += 1
-                                        if tick_count % 25 == 0:
-                                            logger.info(f"💰 {symbol}: ${price:,.4f} (bid:{bid} ask:{ask}) @ {timestamp}")
-                                    else:
-                                        logger.error(f"No quote data for {symbol}")
-                                else:
-                                    error_text = await resp.text()
-                                    logger.error(f"Failed {symbol}: {resp.status} - {error_text}")
-                        except Exception as e:
-                            logger.error(f"Error {symbol}: {e}")
-                
-                await self._broadcast()
-                await asyncio.sleep(0.5)  # Poll quotes every 500ms for faster updates
+                                        if tick_count % 100 == 0:
+                                            logger.info(f"💰 {symbol}: ${price:,.4f} | {tick_count} ticks received")
+                                        
+                                        await self._broadcast()
+                            
+                            elif msg.type == aiohttp.WSMsgType.ERROR:
+                                logger.error(f"WebSocket error: {ws.exception()}")
+                                break
                 
             except Exception as e:
-                logger.error(f"💥 Price feed error: {e}")
+                logger.error(f"💥 Binance WebSocket error: {e}")
+                logger.info("🔄 Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
     
     async def _candle_builder(self):
