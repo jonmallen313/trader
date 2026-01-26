@@ -15,6 +15,14 @@ import json
 from collections import deque
 import sqlite3
 from pathlib import Path
+import numpy as np
+try:
+    import xgboost as xgb
+    from sklearn.preprocessing import StandardScaler
+    HAS_ML = True
+except ImportError:
+    HAS_ML = False
+    logger.warning("⚠️ XGBoost not installed - using fallback strategy")
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -69,9 +77,20 @@ class AggressiveTrader:
         
         # Trading params
         self.symbols = list(self.candles.keys())
-        self.position_size_pct = 0.10  # 10% per trade to allow more positions
-        self.max_positions = 30  # Increased from 15 to maximize profit
-        self.trade_interval = 2  # Trade every 2 seconds - very aggressive
+        self.position_size_pct = 0.08  # 8% per trade - more conservative
+        self.max_positions = 30
+        self.trade_interval = 5  # 5 seconds between trades - less spammy
+        
+        # ML Model for REAL AI predictions
+        self.ml_model = None
+        self.scaler = StandardScaler() if HAS_ML else None
+        self.training_data = {'features': [], 'labels': []}
+        self.min_training_samples = 50
+        
+        if HAS_ML:
+            logger.info("🤖 ML-powered trading ENABLED (XGBoost)")
+        else:
+            logger.warning("⚠️ ML disabled - install: pip install xgboost scikit-learn")
         
     def _init_database(self):
         """Initialize SQLite database for persistence."""
@@ -384,68 +403,152 @@ class AggressiveTrader:
                 await asyncio.sleep(2)
     
     def _get_signal(self, symbol: str) -> dict:
-        """Generate trading signal - HYPER AGGRESSIVE SCALPING."""
-        if len(self.price_history[symbol]) < 10:  # Only need 10 ticks
+        """REAL AI signal using ML model + technical indicators."""
+        if len(self.price_history[symbol]) < 30:  # Need enough data
             return None
         
         history = list(self.price_history[symbol])
-        prices = [p['price'] for p in history]
+        prices = np.array([p['price'] for p in history])
         
-        # Multiple timeframe analysis
-        recent_5 = prices[-5:]
-        recent_10 = prices[-10:]
-        older_15 = prices[-15:-5]  # Adjusted window
+        # Calculate REAL technical indicators
+        features = self._calculate_features(prices)
         
-        avg_5 = sum(recent_5) / len(recent_5)
-        avg_10 = sum(recent_10) / len(recent_10)
-        avg_15 = sum(older_15) / len(older_15)
+        if features is None:
+            return None
         
-        # Trend alignment: short MA > mid MA > long MA
-        short_trend = (avg_5 - avg_10) / avg_10
-        mid_trend = (avg_10 - avg_15) / avg_15
-        
-        # Calculate volatility
-        price_changes = [(prices[i] - prices[i-1]) / prices[i-1] for i in range(1, len(prices))]
-        volatility = (sum(abs(c) for c in price_changes[-10:]) / 10) if len(price_changes) >= 10 else 0.001
-        
-        # HYPER AGGRESSIVE - trade on tiny microtrends
-        if short_trend > 0.00008 and mid_trend > 0.00005:  # Bullish (1000x more sensitive)
-            confidence = min(short_trend * 5000 + mid_trend * 3000, 0.95)
-            logger.info(f"🎯 LONG SIGNAL: {symbol} | Short: {short_trend*100:.6f}% | Mid: {mid_trend*100:.6f}% | Conf: {max(confidence, 0.6)*100:.1f}%")
+        # Use ML model if trained, otherwise use technical analysis
+        if HAS_ML and self.ml_model is not None:
+            # ML PREDICTION
+            features_scaled = self.scaler.transform([features])
+            prediction = self.ml_model.predict(features_scaled)[0]
+            probabilities = self.ml_model.predict_proba(features_scaled)[0]
             
-            # Always trade on any signal (removed volatility filter)
-            return {
-                'side': 'long',
-                'confidence': max(confidence, 0.6),
-                'entry_price': prices[-1]
-            }
-        
-        elif short_trend < -0.00008 and mid_trend < -0.00005:  # Bearish (1000x more sensitive)
-            confidence = min(abs(short_trend) * 5000 + abs(mid_trend) * 3000, 0.95)
-            logger.info(f"🎯 SHORT SIGNAL: {symbol} | Short: {short_trend*100:.6f}% | Mid: {mid_trend*100:.6f}% | Conf: {max(confidence, 0.6)*100:.1f}%")
+            # Only trade on HIGH confidence predictions
+            confidence = np.max(probabilities)
             
-            return {
-                'side': 'short',
-                'confidence': max(confidence, 0.6),
-                'entry_price': prices[-1]
-            }
+            if confidence < 0.65:  # Require 65% confidence minimum
+                return None
+            
+            if prediction == 1:  # LONG signal
+                logger.info(f"🤖 ML LONG SIGNAL: {symbol} | Confidence: {confidence*100:.1f}%")
+                return {
+                    'side': 'long',
+                    'entry_price': prices[-1],
+                    'confidence': confidence
+                }
+            elif prediction == 2:  # SHORT signal
+                logger.info(f"🤖 ML SHORT SIGNAL: {symbol} | Confidence: {confidence*100:.1f}%")
+                return {
+                    'side': 'short',
+                    'entry_price': prices[-1],
+                    'confidence': confidence
+                }
+        else:
+            # FALLBACK: Technical analysis (better than moving averages)
+            rsi, macd, bb_position, trend_strength = features[:4]
+            
+            # Strong bullish: RSI oversold + MACD positive + price near lower BB + strong uptrend
+            if rsi < 35 and macd > 0 and bb_position < 0.3 and trend_strength > 0.002:
+                confidence = min((40 - rsi) / 20 + abs(macd) * 10 + trend_strength * 100, 0.85)
+                if confidence > 0.6:
+                    logger.info(f"📊 TECHNICAL LONG: {symbol} | RSI:{rsi:.1f} MACD:{macd:.4f} | Conf:{confidence*100:.1f}%")
+                    return {'side': 'long', 'entry_price': prices[-1], 'confidence': confidence}
+            
+            # Strong bearish: RSI overbought + MACD negative + price near upper BB + strong downtrend
+            elif rsi > 65 and macd < 0 and bb_position > 0.7 and trend_strength < -0.002:
+                confidence = min((rsi - 60) / 20 + abs(macd) * 10 + abs(trend_strength) * 100, 0.85)
+                if confidence > 0.6:
+                    logger.info(f"📊 TECHNICAL SHORT: {symbol} | RSI:{rsi:.1f} MACD:{macd:.4f} | Conf:{confidence*100:.1f}%")
+                    return {'side': 'short', 'entry_price': prices[-1], 'confidence': confidence}
         
         return None
     
+    def _calculate_features(self, prices: np.ndarray) -> list:
+        """Calculate technical indicator features for ML."""
+        if len(prices) < 30:
+            return None
+        
+        # RSI (Relative Strength Index)
+        deltas = np.diff(prices)
+        gains = np.where(deltas > 0, deltas, 0)
+        losses = np.where(deltas < 0, -deltas, 0)
+        avg_gain = np.mean(gains[-14:]) if len(gains) >= 14 else 0
+        avg_loss = np.mean(losses[-14:]) if len(losses) >= 14 else 0
+        rs = avg_gain / (avg_loss + 1e-10)
+        rsi = 100 - (100 / (1 + rs))
+        
+        # MACD (Moving Average Convergence Divergence)
+        ema_12 = self._ema(prices, 12)
+        ema_26 = self._ema(prices, 26)
+        macd = (ema_12 - ema_26) / ema_26
+        
+        # Bollinger Bands position
+        sma_20 = np.mean(prices[-20:])
+        std_20 = np.std(prices[-20:])
+        bb_upper = sma_20 + 2 * std_20
+        bb_lower = sma_20 - 2 * std_20
+        bb_position = (prices[-1] - bb_lower) / (bb_upper - bb_lower + 1e-10)
+        
+        # Trend strength (rate of change)
+        roc_5 = (prices[-1] - prices[-5]) / prices[-5]
+        roc_10 = (prices[-1] - prices[-10]) / prices[-10]
+        trend_strength = (roc_5 + roc_10) / 2
+        
+        # Volatility (ATR approximation)
+        volatility = np.std(prices[-14:]) / np.mean(prices[-14:])
+        
+        # Volume proxy (tick frequency - not real volume but useful)
+        tick_freq = len(prices) / 60  # ticks per second
+        
+        # Price momentum (multiple timeframes)
+        mom_3 = (prices[-1] - prices[-3]) / prices[-3]
+        mom_7 = (prices[-1] - prices[-7]) / prices[-7]
+        mom_14 = (prices[-1] - prices[-14]) / prices[-14]
+        
+        return [
+            rsi,
+            macd,
+            bb_position,
+            trend_strength,
+            volatility,
+            tick_freq,
+            mom_3,
+            mom_7,
+            mom_14
+        ]
+    
+    def _ema(self, data: np.ndarray, period: int) -> float:
+        """Calculate Exponential Moving Average."""
+        if len(data) < period:
+            return np.mean(data)
+        multiplier = 2 / (period + 1)
+        ema = np.mean(data[:period])
+        for price in data[period:]:
+            ema = (price - ema) * multiplier + ema
+        return ema
+    
     async def _execute_trade(self, symbol: str, signal: dict):
-        """Execute PAPER TRADE via Alpaca API."""
+        """Execute PAPER TRADE via Alpaca API with SMART risk management."""
         try:
             position_value = self.balance * self.position_size_pct
             entry_price = signal['entry_price']
             
-            # SCALPING TP/SL - very tight for tiny movements
-            tp_pct = 0.005  # 0.5% TP
-            sl_pct = 0.003  # 0.3% SL
+            # ADAPTIVE TP/SL based on volatility (SMARTER risk management)
+            prices = np.array([p['price'] for p in self.price_history[symbol]])
+            volatility = np.std(prices[-14:]) / np.mean(prices[-14:])
             
-            # Adjust based on confidence
-            if signal['confidence'] > 0.7:
-                tp_pct = 0.008   # 0.8% for high confidence
-                sl_pct = 0.004   # 0.4% SL
+            # Base TP/SL on volatility - wider stops in volatile markets
+            base_tp = max(0.008, volatility * 3)  # Min 0.8%, scale with volatility
+            base_sl = max(0.004, volatility * 1.5)  # Min 0.4%, scale with volatility
+            
+            # Adjust based on confidence - tighter stops for low confidence
+            confidence = signal.get('confidence', 0.6)
+            tp_pct = base_tp * (0.8 + confidence * 0.4)  # Higher confidence = wider TP
+            sl_pct = base_sl * (1.2 - confidence * 0.4)  # Higher confidence = tighter SL
+            
+            # Ensure minimum risk/reward ratio of 1.5:1
+            if tp_pct / sl_pct < 1.5:
+                tp_pct = sl_pct * 1.8
             
             if signal['side'] == 'long':
                 tp_price = entry_price * (1 + tp_pct)
@@ -503,6 +606,10 @@ class AggressiveTrader:
             else:
                 logger.warning("⚠️ No Alpaca keys found - using local paper trade simulation only")
             
+            # Calculate features for ML training later
+            prices_array = np.array([p['price'] for p in self.price_history[symbol]])
+            features = self._calculate_features(prices_array) if HAS_ML else None
+            
             position = {
                 'id': f"{symbol}_{int(datetime.now().timestamp())}",
                 'symbol': symbol,
@@ -514,7 +621,8 @@ class AggressiveTrader:
                 'sl_price': sl_price,
                 'opened_at': datetime.now().isoformat(),
                 'confidence': signal['confidence'],
-                'alpaca_order_id': alpaca_order_id
+                'alpaca_order_id': alpaca_order_id,
+                'features': features  # Store for ML training when position closes
             }
             
             self.positions.append(position)
@@ -580,7 +688,7 @@ class AggressiveTrader:
                 await asyncio.sleep(1)
     
     async def _close_position(self, position, close_price, reason):
-        """Close position and calculate P&L."""
+        """Close position, calculate P&L, and TRAIN ML MODEL."""
         try:
             entry = position['entry_price']
             
@@ -610,16 +718,63 @@ class AggressiveTrader:
             self._save_trade(trade)
             self._save_balance()
             
+            # TRAIN ML MODEL from results (continuous learning)
+            if HAS_ML and 'features' in position and position['features'] is not None:
+                # Label: 0=bad trade, 1=good long, 2=good short
+                if pnl > 0:
+                    label = 1 if position['side'] == 'long' else 2
+                else:
+                    label = 0
+                
+                self.training_data['features'].append(position['features'])
+                self.training_data['labels'].append(label)
+                
+                # Retrain model every 20 trades
+                if len(self.training_data['labels']) >= self.min_training_samples and \
+                   len(self.training_data['labels']) % 20 == 0:
+                    self._train_model()
+            
             self.positions.remove(position)
             state['positions'] = self.positions
             
             emoji = "✅" if pnl > 0 else "❌"
-            logger.info(f"{emoji} CLOSED {position['symbol']} {position['side']} | ${pnl:+.2f} | {reason}")
+            logger.info(f"{emoji} CLOSED {position['symbol']} {position['side']} | ${pnl:+.2f} ({pnl_pct*100:+.2f}%) | {reason}")
             
             await self._broadcast()
             
         except Exception as e:
             logger.error(f"Close error: {e}")
+    
+    def _train_model(self):
+        """Train XGBoost model on trading results."""
+        try:
+            X = np.array(self.training_data['features'])
+            y = np.array(self.training_data['labels'])
+            
+            # Scale features
+            X_scaled = self.scaler.fit_transform(X)
+            
+            # Train XGBoost classifier
+            self.ml_model = xgb.XGBClassifier(
+                n_estimators=100,
+                max_depth=4,
+                learning_rate=0.1,
+                objective='multi:softprob',
+                num_class=3,
+                eval_metric='mlogloss',
+                random_state=42
+            )
+            
+            self.ml_model.fit(X_scaled, y)
+            
+            # Calculate accuracy on training data (just for logging)
+            predictions = self.ml_model.predict(X_scaled)
+            accuracy = np.mean(predictions == y)
+            
+            logger.info(f"🧠 ML MODEL TRAINED | Samples: {len(y)} | Accuracy: {accuracy*100:.1f}%")
+            
+        except Exception as e:
+            logger.error(f"ML training error: {e}")
     
     async def _broadcast(self):
         """Send updates to all WebSocket clients."""
