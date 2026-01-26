@@ -265,8 +265,8 @@ class AggressiveTrader:
                 await asyncio.sleep(2)
     
     def _get_signal(self, symbol: str) -> dict:
-        """Generate trading signal - IMPROVED STRATEGY."""
-        if len(self.price_history[symbol]) < 15:  # Reduced from 30 to 15
+        """Generate trading signal - HYPER AGGRESSIVE SCALPING."""
+        if len(self.price_history[symbol]) < 10:  # Only need 10 ticks
             return None
         
         history = list(self.price_history[symbol])
@@ -289,27 +289,27 @@ class AggressiveTrader:
         price_changes = [(prices[i] - prices[i-1]) / prices[i-1] for i in range(1, len(prices))]
         volatility = (sum(abs(c) for c in price_changes[-10:]) / 10) if len(price_changes) >= 10 else 0.001
         
-        # Strong directional move: both trends aligned and strong
-        if short_trend > 0.0008 and mid_trend > 0.0005:  # Bullish
-            confidence = min(short_trend * 50 + mid_trend * 30, 0.95)
+        # HYPER AGGRESSIVE - trade on tiny microtrends
+        if short_trend > 0.00008 and mid_trend > 0.00005:  # Bullish (1000x more sensitive)
+            confidence = min(short_trend * 5000 + mid_trend * 3000, 0.95)
+            logger.info(f"🎯 LONG SIGNAL: {symbol} | Short: {short_trend*100:.6f}% | Mid: {mid_trend*100:.6f}% | Conf: {max(confidence, 0.6)*100:.1f}%")
             
-            # Filter: only trade if volatility is reasonable
-            if volatility < 0.003 and confidence > 0.5:  # Low volatility + good signal
-                return {
-                    'side': 'long',
-                    'confidence': confidence,
-                    'entry_price': prices[-1]
-                }
+            # Always trade on any signal (removed volatility filter)
+            return {
+                'side': 'long',
+                'confidence': max(confidence, 0.6),
+                'entry_price': prices[-1]
+            }
         
-        elif short_trend < -0.0008 and mid_trend < -0.0005:  # Bearish
-            confidence = min(abs(short_trend) * 50 + abs(mid_trend) * 30, 0.95)
+        elif short_trend < -0.00008 and mid_trend < -0.00005:  # Bearish (1000x more sensitive)
+            confidence = min(abs(short_trend) * 5000 + abs(mid_trend) * 3000, 0.95)
+            logger.info(f"🎯 SHORT SIGNAL: {symbol} | Short: {short_trend*100:.6f}% | Mid: {mid_trend*100:.6f}% | Conf: {max(confidence, 0.6)*100:.1f}%")
             
-            if volatility < 0.003 and confidence > 0.5:
-                return {
-                    'side': 'short',
-                    'confidence': confidence,
-                    'entry_price': prices[-1]
-                }
+            return {
+                'side': 'short',
+                'confidence': max(confidence, 0.6),
+                'entry_price': prices[-1]
+            }
         
         return None
     
@@ -344,6 +344,9 @@ class AggressiveTrader:
             
             if api_key and api_secret:
                 try:
+                    # Map Kraken symbols to Alpaca crypto format
+                    alpaca_symbol = symbol.replace('/', '')  # BTC/USD -> BTCUSD
+                    
                     async with aiohttp.ClientSession() as session:
                         url = 'https://paper-api.alpaca.markets/v2/orders'
                         headers = {
@@ -352,24 +355,29 @@ class AggressiveTrader:
                             'Content-Type': 'application/json'
                         }
                         order_data = {
-                            'symbol': symbol,
+                            'symbol': alpaca_symbol,
                             'qty': shares,
                             'side': 'buy' if signal['side'] == 'long' else 'sell',
                             'type': 'market',
-                            'time_in_force': 'day'
+                            'time_in_force': 'gtc'  # Good till cancelled for crypto
                         }
                         
+                        logger.info(f"📤 Submitting to Alpaca Paper API: {alpaca_symbol} {signal['side'].upper()} {shares} shares @ ${entry_price:.2f}")
+                        
                         async with session.post(url, headers=headers, json=order_data) as resp:
+                            resp_text = await resp.text()
                             if resp.status == 200:
-                                order = await resp.json()
+                                order = json.loads(resp_text)
                                 alpaca_order_id = order['id']
-                                logger.info(f"📄 PAPER ORDER via Alpaca: {alpaca_order_id}")
+                                logger.info(f"✅ ALPACA PAPER TRADE EXECUTED! Order ID: {alpaca_order_id}")
                             else:
-                                logger.warning(f"⚠️ Alpaca order failed: {resp.status} - falling back to local simulation")
+                                logger.error(f"❌ Alpaca API rejected: {resp.status} - {resp_text}")
+                                logger.warning(f"⚠️ Falling back to local simulation")
                 except Exception as e:
-                    logger.warning(f"⚠️ Alpaca API error: {e} - using local simulation")
+                    logger.error(f"💥 Alpaca API error: {e}")
+                    logger.warning(f"⚠️ Using local simulation")
             else:
-                logger.info("📝 Local paper trade simulation (no Alpaca keys)")
+                logger.warning("⚠️ No Alpaca keys found - using local paper trade simulation only")
             
             position = {
                 'id': f"{symbol}_{int(datetime.now().timestamp())}",
