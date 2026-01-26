@@ -100,34 +100,45 @@ class AggressiveTrader:
         }
         
         logger.info("📡 Connecting to Alpaca for REAL market data...")
+        first_success = False
         
         while self.running:
             try:
                 async with aiohttp.ClientSession() as session:
                     for symbol in self.symbols:
-                        # Get latest quote (bid/ask/last price)
-                        url = f'{data_url}/v2/stocks/{symbol}/quotes/latest'
-                        async with session.get(url, headers=headers) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                quote = data['quote']
-                                # Use bid-ask midpoint for most accurate price
-                                price = (float(quote['ap']) + float(quote['bp'])) / 2
-                                
-                                self.last_prices[symbol] = price
-                                self.price_history[symbol].append({
-                                    'price': price,
-                                    'time': datetime.now().isoformat(),
-                                    'bid': float(quote['bp']),
-                                    'ask': float(quote['ap'])
-                                })
-                                
-                                state['market_prices'][symbol] = {
-                                    'price': price,
-                                    'timestamp': datetime.now().isoformat()
-                                }
-                            else:
-                                error = await resp.text()
+                        try:
+                            # Try latest bars first (works even when market is closed - gets last trading day data)
+                            url = f'{data_url}/v2/stocks/{symbol}/bars/latest'
+                            async with session.get(url, headers=headers) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    bar = data['bar']
+                                    # Use close price from latest bar
+                                    price = float(bar['c'])
+                                    
+                                    if not first_success:
+                                        logger.info(f"✅ Received data for {symbol}: ${price:.2f}")
+                                        first_success = True
+                                    
+                                    self.last_prices[symbol] = price
+                                    self.price_history[symbol].append({
+                                        'price': price,
+                                        'time': datetime.now().isoformat(),
+                                        'open': float(bar['o']),
+                                        'high': float(bar['h']),
+                                        'low': float(bar['l']),
+                                        'volume': int(bar['v'])
+                                    })
+                                    
+                                    state['market_prices'][symbol] = {
+                                        'price': price,
+                                        'timestamp': datetime.now().isoformat()
+                                    }
+                                else:
+                                    error_text = await resp.text()
+                                    logger.error(f"❌ Failed to fetch {symbol}: {resp.status} - {error_text}")
+                        except Exception as e:
+                            logger.error(f"❌ Error fetching {symbol}: {e}")
                                 logger.warning(f"Failed to fetch {symbol}: {resp.status} - {error}")
                 
                 await self._broadcast()
