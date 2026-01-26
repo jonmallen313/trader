@@ -86,7 +86,7 @@ class AggressiveTrader:
             logger.exception(e)
     
     async def _price_feed(self):
-        """Fetch REAL crypto prices via HTTP - simpler and more reliable."""
+        """Fetch REAL crypto quotes (bid/ask) which update constantly."""
         api_key = os.getenv('ALPACA_API_KEY', '')
         api_secret = os.getenv('ALPACA_API_SECRET', '')
         
@@ -95,7 +95,7 @@ class AggressiveTrader:
             self.running = False
             return
         
-        logger.info("📡 Fetching LIVE crypto prices from Alpaca...")
+        logger.info("📡 Fetching LIVE crypto quotes from Alpaca...")
         
         data_url = 'https://data.alpaca.markets'
         headers = {
@@ -112,55 +112,55 @@ class AggressiveTrader:
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     for symbol in self.symbols:
                         try:
-                            # Get latest crypto trade
-                            url = f'{data_url}/v1beta3/crypto/us/latest/trades?symbols={symbol}'
+                            # Get latest QUOTES (bid/ask) - updates way more frequently than trades
+                            url = f'{data_url}/v1beta3/crypto/us/latest/quotes?symbols={symbol}'
                             async with session.get(url, headers=headers) as resp:
                                 if resp.status == 200:
                                     data = await resp.json()
                                     
                                     if first_log:
-                                        logger.info(f"📥 RAW API RESPONSE: {json.dumps(data, indent=2)[:500]}")
+                                        logger.info(f"📥 QUOTE DATA: {json.dumps(data, indent=2)[:500]}")
                                         first_log = False
                                     
-                                    trades = data.get('trades', {})
-                                    if symbol in trades:
-                                        trade_data = trades[symbol]
-                                        price = float(trade_data['p'])
-                                        timestamp = trade_data.get('t', '')
+                                    quotes = data.get('quotes', {})
+                                    if symbol in quotes:
+                                        quote_data = quotes[symbol]
+                                        bid = float(quote_data['bp'])
+                                        ask = float(quote_data['ap'])
+                                        price = (bid + ask) / 2  # Mid-price
+                                        timestamp = quote_data.get('t', '')
                                         
                                         self.last_prices[symbol] = price
                                         self.price_history[symbol].append({
                                             'price': price,
                                             'time': datetime.now().isoformat(),
-                                            'trade_time': timestamp
+                                            'quote_time': timestamp,
+                                            'bid': bid,
+                                            'ask': ask
                                         })
                                         
                                         state['market_prices'][symbol] = {
                                             'price': price,
                                             'timestamp': datetime.now().isoformat(),
-                                            'trade_timestamp': timestamp
+                                            'quote_timestamp': timestamp
                                         }
                                         
                                         tick_count += 1
                                         if tick_count % 25 == 0:
-                                            logger.info(f"💰 {symbol}: ${price:,.4f} @ {timestamp}")
+                                            logger.info(f"💰 {symbol}: ${price:,.4f} (bid:{bid} ask:{ask}) @ {timestamp}")
                                     else:
-                                        logger.error(f"No trade data for {symbol} in response: {data}")
+                                        logger.error(f"No quote data for {symbol}")
                                 else:
                                     error_text = await resp.text()
                                     logger.error(f"Failed {symbol}: {resp.status} - {error_text}")
                         except Exception as e:
                             logger.error(f"Error {symbol}: {e}")
-                            import traceback
-                            traceback.print_exc()
                 
                 await self._broadcast()
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)  # Poll quotes every 500ms for faster updates
                 
             except Exception as e:
                 logger.error(f"💥 Price feed error: {e}")
-                import traceback
-                traceback.print_exc()
                 await asyncio.sleep(5)
     
     async def _candle_builder(self):
