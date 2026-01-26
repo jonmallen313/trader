@@ -1,26 +1,123 @@
-# 🤖 AI Trading System
+# 🤖 AI Trading System - AUTONOMOUS MODE
 
-An automated AI-powered trading system that starts with $100 and uses machine learning to detect micro trends for achieving a 20x multiplier goal ($2000). The system supports both paper trading and live trading with real-time data analysis and continuous learning.
+**The simplest AI trader ever. You set capital, AI does EVERYTHING else.**
 
-## 🎯 Project Goals
+## ⚡ Ultra Quick Start
 
-- **Starting Capital**: $100
-- **Target Goal**: $2,000 (20x multiplier)
-- **Strategy**: Micro-trend detection using AI/ML
-- **Risk Management**: Per-trade TP/SL + global profit target
-- **Learning**: Continuous model adaptation to market conditions
+```bash
+# 1. Get FREE Bybit testnet keys: https://testnet.bybit.com
+# 2. Set credentials:
+$env:BYBIT_API_KEY="your_key"
+$env:BYBIT_API_SECRET="your_secret"
 
-## 🚀 Features
+# 3. Install:
+pip install pybit aiohttp python-dotenv
 
-- ✅ **Real-time Data Feeds**: Binance and Alpaca websocket integration
-- ✅ **AI Micro-trend Detection**: XGBoost + Online Learning ensemble
-- ✅ **Automated Trading**: Full autopilot with position management
-- ✅ **Risk Management**: Per-position and global TP/SL controls
-- ✅ **TradingView Integration**: Webhook for Pine Script signals
-- ✅ **Paper Trading**: Risk-free testing mode
-- ✅ **Live Dashboard**: Real-time monitoring with Streamlit
-- ✅ **Backtesting**: Historical strategy validation
-- ✅ **Continuous Learning**: Models retrain on live data
+# 4. Run:
+python trade.py
+```
+
+**That's it!** Enter your capital amount and watch the AI trade.
+
+---
+
+## 🎯 What You Control
+
+- **Capital amount** - How much to trade with
+
+## 🤖 What AI Controls (Everything Else)
+
+- ✅ Symbol selection (BTC, ETH, SOL, AVAX)
+- ✅ When to enter/exit
+- ✅ Leverage (5x-20x based on confidence)
+- ✅ TP/SL levels
+- ✅ Position sizing
+- ✅ Risk management
+- ✅ Auto-adjusts based on performance
+
+
+## 📖 Full Documentation
+
+- **[SIMPLE_GUIDE.md](SIMPLE_GUIDE.md)** - Complete guide for autonomous mode ⭐
+- **[QUICKSTART.md](QUICKSTART.md)** - Advanced CLI interface
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture
+- **Old docs in `docs/`** - Legacy documentation
+
+---
+
+## 🔧 How It Works
+
+### Live Display
+```
+======================================================================
+🤖 AI AUTOPILOT - LIVE STATUS
+======================================================================
+💰 Capital: $107.70 / $2,000.00
+📊 Progress: 5.4% █
+📈 Total P&L: $+7.70 (+7.70%)
+🎯 Win Rate: 100.0% (2W / 0L)
+⚡ Open Positions: 1 / 5
+
+📋 Active Positions:
+  SOL/USDT     long   12x | P&L: $+2.30 (+0.23%) | 🟢 Liq: 18.3%
+======================================================================
+```
+
+### AI Decision Making
+
+**Every 5 seconds, AI:**
+1. Scans multiple symbols
+2. Analyzes market conditions
+3. Calculates confidence (0-100%)
+4. Decides if trade is worth it (>55% confidence)
+5. Picks optimal leverage (5x-20x)
+6. Sets perfect TP/SL levels
+7. Executes trade automatically
+
+**Every 2 seconds, AI:**
+1. Monitors all open positions
+2. Checks TP/SL levels
+3. Watches liquidation distance
+4. Exits at optimal time
+
+**Every 30 seconds, AI:**
+1. Evaluates performance
+2. Adjusts leverage based on win rate
+3. Reduces risk if losing
+4. Increases risk if winning
+
+---
+
+## 💡 Key Features
+
+- **100% Autonomous** - Set capital and forget
+- **Real-time Updates** - Live P&L, win rate, positions
+- **Smart Leverage** - AI picks 5x-20x based on confidence
+- **Auto Risk Management** - Emergency stops, liquidation guards
+- **Self-Optimizing** - Adjusts strategy based on results
+- **FREE Paper Trading** - Unlimited testnet money from Bybit
+
+---
+
+## ⚙️ Advanced Configuration (Optional)
+
+Want to tweak AI behavior? Edit `core/autopilot.py`:
+
+```python
+# Change target multiplier
+target_profit = capital * 50  # 50x instead of 20x
+
+# Change max positions
+max_positions: int = 10
+
+# Change confidence threshold  
+ai_confidence_threshold = 0.60  # Higher = more selective
+
+# Change base leverage
+base_leverage = 5  # Lower = safer
+```
+
+---
 
 ## 📁 Project Structure
 
