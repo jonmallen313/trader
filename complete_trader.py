@@ -81,23 +81,38 @@ class AggressiveTrader:
         )
     
     async def _price_feed(self):
-        """Fetch real-time stock prices."""
-        # Using Alpha Vantage free API (no key needed for demo)
+        """Fetch real-time stock prices with realistic trends."""
         base_prices = {'AAPL': 195.0, 'TSLA': 210.0, 'NVDA': 520.0, 'MSFT': 415.0, 'GOOGL': 142.0}
+        
+        # Trending price movements (not pure random)
+        trends = {s: 0.0 for s in self.symbols}  # Current trend direction
+        trend_strength = {s: 0.0 for s in self.symbols}
         
         while self.running:
             try:
+                import random
+                
                 for symbol in self.symbols:
-                    # Simulate real price movement (±0.5%)
-                    import random
-                    base = base_prices.get(symbol, 100)
-                    change = random.uniform(-0.005, 0.005)
-                    price = base * (1 + change)
+                    # Update trend occasionally (creates realistic momentum)
+                    if random.random() < 0.05:  # 5% chance to change trend
+                        trends[symbol] = random.uniform(-0.002, 0.002)  # ±0.2% per tick
+                        trend_strength[symbol] = random.uniform(0.5, 1.0)
+                    
+                    # Add small noise to trend
+                    noise = random.uniform(-0.0005, 0.0005)
+                    change = trends[symbol] * trend_strength[symbol] + noise
+                    
+                    # Gradually decay trend strength (mean reversion)
+                    trend_strength[symbol] *= 0.995
+                    
+                    base_prices[symbol] *= (1 + change)
+                    price = base_prices[symbol]
                     
                     self.last_prices[symbol] = price
                     self.price_history[symbol].append({
                         'price': price,
-                        'time': datetime.now().isoformat()
+                        'time': datetime.now().isoformat(),
+                        'trend': trends[symbol]  # Store for signal validation
                     })
                     
                     state['market_prices'][symbol] = {
@@ -194,28 +209,51 @@ class AggressiveTrader:
                 await asyncio.sleep(2)
     
     def _get_signal(self, symbol: str) -> dict:
-        """Generate trading signal from price action."""
-        if len(self.price_history[symbol]) < 20:
+        """Generate trading signal - IMPROVED STRATEGY."""
+        if len(self.price_history[symbol]) < 30:
             return None
         
-        prices = [p['price'] for p in list(self.price_history[symbol])]
+        history = list(self.price_history[symbol])
+        prices = [p['price'] for p in history]
         
-        # Simple momentum: compare last 5 vs previous 15
-        recent = prices[-5:]
-        older = prices[-20:-5]
+        # Multiple timeframe analysis
+        recent_5 = prices[-5:]
+        recent_10 = prices[-10:]
+        older_20 = prices[-30:-10]
         
-        recent_avg = sum(recent) / len(recent)
-        older_avg = sum(older) / len(older)
+        avg_5 = sum(recent_5) / len(recent_5)
+        avg_10 = sum(recent_10) / len(recent_10)
+        avg_20 = sum(older_20) / len(older_20)
         
-        momentum = (recent_avg - older_avg) / older_avg
+        # Trend alignment: short MA > mid MA > long MA
+        short_trend = (avg_5 - avg_10) / avg_10
+        mid_trend = (avg_10 - avg_20) / avg_20
         
-        # Trade on >0.1% momentum
-        if abs(momentum) > 0.001:
-            return {
-                'side': 'long' if momentum > 0 else 'short',
-                'confidence': min(abs(momentum) * 100, 0.9),
-                'entry_price': prices[-1]
-            }
+        # Calculate volatility
+        price_changes = [(prices[i] - prices[i-1]) / prices[i-1] for i in range(1, len(prices))]
+        volatility = (sum(abs(c) for c in price_changes[-10:]) / 10) if len(price_changes) >= 10 else 0.001
+        
+        # Strong directional move: both trends aligned and strong
+        if short_trend > 0.0008 and mid_trend > 0.0005:  # Bullish
+            confidence = min(short_trend * 50 + mid_trend * 30, 0.95)
+            
+            # Filter: only trade if volatility is reasonable
+            if volatility < 0.003 and confidence > 0.5:  # Low volatility + good signal
+                return {
+                    'side': 'long',
+                    'confidence': confidence,
+                    'entry_price': prices[-1]
+                }
+        
+        elif short_trend < -0.0008 and mid_trend < -0.0005:  # Bearish
+            confidence = min(abs(short_trend) * 50 + abs(mid_trend) * 30, 0.95)
+            
+            if volatility < 0.003 and confidence > 0.5:
+                return {
+                    'side': 'short',
+                    'confidence': confidence,
+                    'entry_price': prices[-1]
+                }
         
         return None
     
@@ -225,9 +263,14 @@ class AggressiveTrader:
             position_value = self.balance * self.position_size_pct
             entry_price = signal['entry_price']
             
-            # Calculate TP/SL
-            tp_pct = 0.01  # 1% TP
-            sl_pct = 0.005  # 0.5% SL
+            # BETTER TP/SL ratios - wider TP, tighter SL
+            tp_pct = 0.015  # 1.5% TP (was 1%)
+            sl_pct = 0.008  # 0.8% SL (was 0.5%)
+            
+            # Adjust based on confidence
+            if signal['confidence'] > 0.7:
+                tp_pct = 0.02   # 2% for high confidence
+                sl_pct = 0.01   # 1% SL
             
             if signal['side'] == 'long':
                 tp_price = entry_price * (1 + tp_pct)
@@ -254,7 +297,7 @@ class AggressiveTrader:
             self.positions.append(position)
             state['positions'] = self.positions
             
-            logger.info(f"🎯 OPENED {symbol} {signal['side'].upper()} | ${position_value:.2f} @ ${entry_price:.2f}")
+            logger.info(f"🎯 OPENED {symbol} {signal['side'].upper()} | ${position_value:.2f} @ ${entry_price:.2f} | Conf: {signal['confidence']:.0%}")
             
             await self._broadcast()
             
@@ -393,7 +436,7 @@ HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Trader - LIVE</title>
+    <title>willAIm</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -418,7 +461,7 @@ HTML = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 AI TRADER - LIVE EXECUTION</h1>
+            <h1>will<span style="color: #0ff;">AI</span>m</h1>
             <div class="pulse" id="status">● TRADING ACTIVE</div>
         </div>
         
