@@ -407,9 +407,53 @@ async def stats():
     }
 
 
+@app.get("/api/account")
+async def account():
+    """Get account info (for old dashboard compatibility)."""
+    return {
+        'balance': trader_state['balance'],
+        'capital': trader_state['capital'],
+        'equity': trader_state['balance'],
+        'available': trader_state['balance'] * 0.7,  # Reserve 30%
+        'used': trader_state['balance'] * 0.3
+    }
+
+
+@app.get("/api/positions")
+async def positions():
+    """Get active positions."""
+    return {'positions': trader_state['positions']}
+
+
+@app.get("/api/stocks")
+async def stocks():
+    """Get market data (for old dashboard compatibility)."""
+    return {
+        'stocks': [
+            {
+                'symbol': symbol,
+                'price': data['price'],
+                'change': data['change_24h'],
+                'volume': data['volume']
+            }
+            for symbol, data in trader_state['market_data'].items()
+        ]
+    }
+
+
 @app.on_event("startup")
 async def startup():
     """Start trading on app startup."""
+    logger.info("=" * 60)
+    logger.info("🚀 AI TRADER STARTING")
+    logger.info("=" * 60)
+    
+    # Check for API keys
+    if not os.getenv('BYBIT_API_KEY'):
+        logger.warning("⚠️  BYBIT_API_KEY not set - using MOCK MODE")
+        logger.warning("⚠️  Set API keys in Railway dashboard to enable real trading")
+        logger.warning("⚠️  Get free testnet keys: https://testnet.bybit.com")
+    
     asyncio.create_task(trader.start())
 
 
