@@ -113,20 +113,20 @@ class LiveTrader:
         
         elif alpaca_key and alpaca_secret:
             try:
-                # Use Alpaca for paper trading (crypto not available but we can simulate)
+                # Use Alpaca for paper trading
                 self.exchange = ccxt.alpaca({
                     'apiKey': alpaca_key,
                     'secret': alpaca_secret,
                     'enableRateLimit': True
                 })
                 
-                # For crypto prices, use public Binance API
-                self.crypto_exchange = ccxt.binance({
+                # For crypto prices, use Kraken (no geo-restrictions)
+                self.crypto_exchange = ccxt.kraken({
                     'enableRateLimit': True
                 })
                 
                 logger.info("✅ Connected to Alpaca (paper trading)")
-                logger.info("📊 Using Binance for crypto market data")
+                logger.info("📊 Using Kraken for crypto market data")
                 return
             except Exception as e:
                 logger.error(f"Alpaca setup failed: {e}")
@@ -138,7 +138,7 @@ class LiveTrader:
         """Fetch live market data."""
         while self.running:
             try:
-                # Use crypto_exchange if available (Binance public), otherwise main exchange
+                # Use crypto_exchange if available (Kraken), otherwise main exchange
                 data_exchange = getattr(self, 'crypto_exchange', self.exchange)
                 
                 if not data_exchange:
@@ -146,19 +146,32 @@ class LiveTrader:
                     continue
                 
                 for symbol in self.symbols:
-                    ticker = await data_exchange.fetch_ticker(f"{symbol[:3]}/USDT")
-                    
-                    market_data = {
-                        'symbol': symbol,
-                        'price': ticker['last'],
-                        'change_24h': ticker.get('percentage', 0),
-                        'volume': ticker.get('quoteVolume', 0),
-                        'high_24h': ticker.get('high', ticker['last']),
-                        'low_24h': ticker.get('low', ticker['last']),
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    
-                    trader_state['market_data'][symbol] = market_data
+                    try:
+                        # Different exchanges use different symbol formats
+                        # Kraken: BTC/USDT, Binance: BTC/USDT, Bybit: BTCUSDT
+                        if hasattr(data_exchange, 'id'):
+                            if data_exchange.id == 'kraken':
+                                ticker_symbol = f"{symbol[:3]}/USD"  # Kraken uses USD not USDT
+                            else:
+                                ticker_symbol = f"{symbol[:3]}/USDT"
+                        else:
+                            ticker_symbol = f"{symbol[:3]}/USDT"
+                        
+                        ticker = await data_exchange.fetch_ticker(ticker_symbol)
+                        
+                        market_data = {
+                            'symbol': symbol,
+                            'price': ticker['last'],
+                            'change_24h': ticker.get('percentage', 0),
+                            'volume': ticker.get('quoteVolume', 0),
+                            'high_24h': ticker.get('high', ticker['last']),
+                            'low_24h': ticker.get('low', ticker['last']),
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        
+                        trader_state['market_data'][symbol] = market_data
+                    except Exception as e:
+                        logger.debug(f"Error fetching {symbol}: {e}")
                 
                 trader_state['last_update'] = datetime.now().isoformat()
                 
