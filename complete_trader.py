@@ -72,13 +72,18 @@ class AggressiveTrader:
         logger.info("🚀 STARTING AGGRESSIVE TRADER")
         self.running = True
         
-        await asyncio.gather(
-            self._price_feed(),
-            self._candle_builder(),
-            self._trading_engine(),
-            self._position_monitor(),
-            return_exceptions=True
-        )
+        logger.info("🔧 Starting 4 background tasks...")
+        try:
+            await asyncio.gather(
+                self._price_feed(),
+                self._candle_builder(),
+                self._trading_engine(),
+                self._position_monitor(),
+                return_exceptions=True
+            )
+        except Exception as e:
+            logger.error(f"💥 CRITICAL ERROR in trader.start(): {e}")
+            logger.exception(e)
     
     async def _price_feed(self):
         """Fetch REAL-TIME stock prices from Alpaca API."""
@@ -104,7 +109,9 @@ class AggressiveTrader:
         
         while self.running:
             try:
-                async with aiohttp.ClientSession() as session:
+                # 10-second timeout on all requests
+                timeout = aiohttp.ClientTimeout(total=10)
+                async with aiohttp.ClientSession(timeout=timeout) as session:
                     for symbol in self.symbols:
                         try:
                             # Try latest bars first (works even when market is closed - gets last trading day data)
@@ -139,13 +146,13 @@ class AggressiveTrader:
                                     logger.error(f"❌ Failed to fetch {symbol}: {resp.status} - {error_text}")
                         except Exception as e:
                             logger.error(f"❌ Error fetching {symbol}: {e}")
-                                logger.warning(f"Failed to fetch {symbol}: {resp.status} - {error}")
                 
                 await self._broadcast()
                 await asyncio.sleep(1)  # Update every second
                 
             except Exception as e:
-                logger.error(f"Price feed error: {e}")
+                logger.error(f"💥 Price feed critical error: {e}")
+                logger.exception(e)
                 await asyncio.sleep(5)
     
     async def _candle_builder(self):
@@ -479,7 +486,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    logger.info("🏥 Health check called")
+    return {"status": "ok", "trading": trader.running, "positions": len(trader.positions)}
 
 
 @app.on_event("startup")
