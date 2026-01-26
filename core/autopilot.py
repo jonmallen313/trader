@@ -15,6 +15,8 @@ from core.signal import TradingSignal
 from brokers.base import BrokerInterface
 from analytics.metrics import MetricsCalculator
 from analytics.logger import TradeLogger
+from models.microtrend_ai import XGBoostMicroTrend, FeatureEngineer
+from data.market_data import MarketDataFeed
 
 
 @dataclass
@@ -56,6 +58,8 @@ class FullAutoPilot:
         # AI decision engine
         self.ai_confidence_threshold = 0.55  # Auto-adjust based on performance
         self.base_leverage = 10  # Auto-adjust based on win rate
+        self.ai_model = XGBoostMicroTrend()
+        self.market_data_feed = None
         
     async def start(self):
         """Start fully autonomous trading."""

@@ -1,1 +1,1 @@
-web: python healthcheck_server.py
+web: python railway_app.py
