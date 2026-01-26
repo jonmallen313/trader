@@ -92,8 +92,8 @@ class AggressiveTrader:
             self.running = False
             return
         
-        # Alpaca paper trading base URL
-        base_url = 'https://paper-api.alpaca.markets'
+        # Alpaca market data API (separate from trading API)
+        data_url = 'https://data.alpaca.markets'
         headers = {
             'APCA-API-KEY-ID': api_key,
             'APCA-API-SECRET-KEY': api_secret
@@ -105,18 +105,21 @@ class AggressiveTrader:
             try:
                 async with aiohttp.ClientSession() as session:
                     for symbol in self.symbols:
-                        # Get latest trade price
-                        url = f'{base_url}/v2/stocks/{symbol}/trades/latest'
+                        # Get latest quote (bid/ask/last price)
+                        url = f'{data_url}/v2/stocks/{symbol}/quotes/latest'
                         async with session.get(url, headers=headers) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
-                                price = float(data['trade']['p'])
+                                quote = data['quote']
+                                # Use bid-ask midpoint for most accurate price
+                                price = (float(quote['ap']) + float(quote['bp'])) / 2
                                 
                                 self.last_prices[symbol] = price
                                 self.price_history[symbol].append({
                                     'price': price,
                                     'time': datetime.now().isoformat(),
-                                    'volume': data['trade']['s']
+                                    'bid': float(quote['bp']),
+                                    'ask': float(quote['ap'])
                                 })
                                 
                                 state['market_prices'][symbol] = {
@@ -124,7 +127,8 @@ class AggressiveTrader:
                                     'timestamp': datetime.now().isoformat()
                                 }
                             else:
-                                logger.warning(f"Failed to fetch {symbol}: {resp.status}")
+                                error = await resp.text()
+                                logger.warning(f"Failed to fetch {symbol}: {resp.status} - {error}")
                 
                 await self._broadcast()
                 await asyncio.sleep(1)  # Update every second
