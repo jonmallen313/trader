@@ -84,40 +84,69 @@ class LiveTrader:
         )
     
     async def _setup_broker(self):
-        """Initialize Bybit connection."""
-        api_key = os.getenv('BYBIT_API_KEY')
-        api_secret = os.getenv('BYBIT_API_SECRET')
+        """Initialize broker connection."""
+        # Try Bybit first
+        bybit_key = os.getenv('BYBIT_API_KEY')
+        bybit_secret = os.getenv('BYBIT_API_SECRET')
         
-        if not api_key:
-            logger.warning("No Bybit keys - using mock mode")
-            return
+        # Try Alpaca if no Bybit
+        alpaca_key = os.getenv('ALPACA_API_KEY')
+        alpaca_secret = os.getenv('ALPACA_API_SECRET')
         
-        try:
-            self.broker = BybitBroker(api_key, api_secret, testnet=True)
-            await self.broker.connect()
-            
-            self.exchange = ccxt.bybit({
-                'apiKey': api_key,
-                'secret': api_secret,
-                'enableRateLimit': True,
-                'options': {'defaultType': 'linear'}
-            })
-            self.exchange.set_sandbox_mode(True)
-            
-            logger.info("✅ Connected to Bybit")
-        except Exception as e:
-            logger.error(f"Broker setup failed: {e}")
+        if bybit_key and bybit_secret:
+            try:
+                self.broker = BybitBroker(bybit_key, bybit_secret, testnet=True)
+                await self.broker.connect()
+                
+                self.exchange = ccxt.bybit({
+                    'apiKey': bybit_key,
+                    'secret': bybit_secret,
+                    'enableRateLimit': True,
+                    'options': {'defaultType': 'linear'}
+                })
+                self.exchange.set_sandbox_mode(True)
+                
+                logger.info("✅ Connected to Bybit Testnet")
+                return
+            except Exception as e:
+                logger.error(f"Bybit setup failed: {e}")
+        
+        elif alpaca_key and alpaca_secret:
+            try:
+                # Use Alpaca for paper trading (crypto not available but we can simulate)
+                self.exchange = ccxt.alpaca({
+                    'apiKey': alpaca_key,
+                    'secret': alpaca_secret,
+                    'enableRateLimit': True
+                })
+                
+                # For crypto prices, use public Binance API
+                self.crypto_exchange = ccxt.binance({
+                    'enableRateLimit': True
+                })
+                
+                logger.info("✅ Connected to Alpaca (paper trading)")
+                logger.info("📊 Using Binance for crypto market data")
+                return
+            except Exception as e:
+                logger.error(f"Alpaca setup failed: {e}")
+        
+        logger.warning("⚠️  No valid API keys - using MOCK MODE")
+        logger.warning("⚠️  Add BYBIT_API_KEY/SECRET or ALPACA_API_KEY/SECRET to Railway")
     
     async def _market_data_loop(self):
         """Fetch live market data."""
         while self.running:
             try:
-                if not self.exchange:
+                # Use crypto_exchange if available (Binance public), otherwise main exchange
+                data_exchange = getattr(self, 'crypto_exchange', self.exchange)
+                
+                if not data_exchange:
                     await asyncio.sleep(5)
                     continue
                 
                 for symbol in self.symbols:
-                    ticker = await self.exchange.fetch_ticker(f"{symbol[:3]}/USDT")
+                    ticker = await data_exchange.fetch_ticker(f"{symbol[:3]}/USDT")
                     
                     market_data = {
                         'symbol': symbol,
@@ -449,10 +478,16 @@ async def startup():
     logger.info("=" * 60)
     
     # Check for API keys
-    if not os.getenv('BYBIT_API_KEY'):
-        logger.warning("⚠️  BYBIT_API_KEY not set - using MOCK MODE")
-        logger.warning("⚠️  Set API keys in Railway dashboard to enable real trading")
-        logger.warning("⚠️  Get free testnet keys: https://testnet.bybit.com")
+    has_bybit = os.getenv('BYBIT_API_KEY') and os.getenv('BYBIT_API_SECRET')
+    has_alpaca = os.getenv('ALPACA_API_KEY') and os.getenv('ALPACA_API_SECRET')
+    
+    if has_bybit:
+        logger.info("🔑 Using Bybit API (Testnet)")
+    elif has_alpaca:
+        logger.info("🔑 Using Alpaca API (Paper Trading)")
+    else:
+        logger.warning("⚠️  No API keys found - MOCK MODE")
+        logger.warning("⚠️  Set BYBIT or ALPACA keys in Railway variables")
     
     asyncio.create_task(trader.start())
 
