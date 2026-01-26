@@ -335,7 +335,12 @@ class AggressiveTrader:
                 tp_price = entry_price * (1 - tp_pct)
                 sl_price = entry_price * (1 + sl_pct)
             
-            shares = int(position_value / entry_price)
+            # FRACTIONAL CRYPTO TRADING - Alpaca supports fractions
+            shares = round(position_value / entry_price, 8)  # Up to 8 decimals
+            
+            if shares < 0.00000001:  # Minimum fractional amount
+                logger.warning(f"⚠️ Position too small: {shares} shares of {symbol}")
+                return
             
             # Submit PAPER ORDER to Alpaca
             api_key = os.getenv('ALPACA_API_KEY', '')
@@ -356,7 +361,7 @@ class AggressiveTrader:
                         }
                         order_data = {
                             'symbol': alpaca_symbol,
-                            'qty': shares,
+                            'qty': str(shares),  # String for fractional crypto
                             'side': 'buy' if signal['side'] == 'long' else 'sell',
                             'type': 'market',
                             'time_in_force': 'gtc'  # Good till cancelled for crypto
