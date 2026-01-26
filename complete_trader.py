@@ -63,8 +63,8 @@ class AggressiveTrader:
         
         # Trading params
         self.symbols = list(self.candles.keys())
-        self.position_size_pct = 0.20  # 20% per trade
-        self.max_positions = 3
+        self.position_size_pct = 0.10  # 10% per trade (more positions)
+        self.max_positions = 15
         self.trade_interval = 5  # Trade every 5 seconds
         
     async def start(self):
@@ -81,52 +81,57 @@ class AggressiveTrader:
         )
     
     async def _price_feed(self):
-        """Fetch real-time stock prices with realistic trends."""
-        base_prices = {'AAPL': 195.0, 'TSLA': 210.0, 'NVDA': 520.0, 'MSFT': 415.0, 'GOOGL': 142.0}
+        """Fetch REAL-TIME stock prices from Alpaca API."""
+        # Get API keys from environment
+        api_key = os.getenv('ALPACA_API_KEY', '')
+        api_secret = os.getenv('ALPACA_API_SECRET', '')
         
-        # Trending price movements (not pure random)
-        trends = {s: 0.0 for s in self.symbols}  # Current trend direction
-        trend_strength = {s: 0.0 for s in self.symbols}
+        if not api_key or not api_secret:
+            logger.error("❌ NO ALPACA API KEYS - Cannot fetch real market data")
+            logger.error("Set ALPACA_API_KEY and ALPACA_API_SECRET environment variables")
+            self.running = False
+            return
+        
+        # Alpaca paper trading base URL
+        base_url = 'https://paper-api.alpaca.markets'
+        headers = {
+            'APCA-API-KEY-ID': api_key,
+            'APCA-API-SECRET-KEY': api_secret
+        }
+        
+        logger.info("📡 Connecting to Alpaca for REAL market data...")
         
         while self.running:
             try:
-                import random
-                
-                for symbol in self.symbols:
-                    # Update trend occasionally (creates realistic momentum)
-                    if random.random() < 0.05:  # 5% chance to change trend
-                        trends[symbol] = random.uniform(-0.002, 0.002)  # ±0.2% per tick
-                        trend_strength[symbol] = random.uniform(0.5, 1.0)
-                    
-                    # Add small noise to trend
-                    noise = random.uniform(-0.0005, 0.0005)
-                    change = trends[symbol] * trend_strength[symbol] + noise
-                    
-                    # Gradually decay trend strength (mean reversion)
-                    trend_strength[symbol] *= 0.995
-                    
-                    base_prices[symbol] *= (1 + change)
-                    price = base_prices[symbol]
-                    
-                    self.last_prices[symbol] = price
-                    self.price_history[symbol].append({
-                        'price': price,
-                        'time': datetime.now().isoformat(),
-                        'trend': trends[symbol]  # Store for signal validation
-                    })
-                    
-                    state['market_prices'][symbol] = {
-                        'price': price,
-                        'change': change * 100,
-                        'timestamp': datetime.now().isoformat()
-                    }
+                async with aiohttp.ClientSession() as session:
+                    for symbol in self.symbols:
+                        # Get latest trade price
+                        url = f'{base_url}/v2/stocks/{symbol}/trades/latest'
+                        async with session.get(url, headers=headers) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                price = float(data['trade']['p'])
+                                
+                                self.last_prices[symbol] = price
+                                self.price_history[symbol].append({
+                                    'price': price,
+                                    'time': datetime.now().isoformat(),
+                                    'volume': data['trade']['s']
+                                })
+                                
+                                state['market_prices'][symbol] = {
+                                    'price': price,
+                                    'timestamp': datetime.now().isoformat()
+                                }
+                            else:
+                                logger.warning(f"Failed to fetch {symbol}: {resp.status}")
                 
                 await self._broadcast()
-                await asyncio.sleep(1)  # 1s updates
+                await asyncio.sleep(1)  # Update every second
                 
             except Exception as e:
                 logger.error(f"Price feed error: {e}")
-                await asyncio.sleep(1)
+                await asyncio.sleep(5)
     
     async def _candle_builder(self):
         """Build 1-second candlesticks."""
@@ -258,7 +263,7 @@ class AggressiveTrader:
         return None
     
     async def _execute_trade(self, symbol: str, signal: dict):
-        """Execute a trade IMMEDIATELY."""
+        """Execute PAPER TRADE via Alpaca API."""
         try:
             position_value = self.balance * self.position_size_pct
             entry_price = signal['entry_price']
@@ -279,7 +284,41 @@ class AggressiveTrader:
                 tp_price = entry_price * (1 - tp_pct)
                 sl_price = entry_price * (1 + sl_pct)
             
-            shares = position_value / entry_price
+            shares = int(position_value / entry_price)
+            
+            # Submit PAPER ORDER to Alpaca
+            api_key = os.getenv('ALPACA_API_KEY', '')
+            api_secret = os.getenv('ALPACA_API_SECRET', '')
+            alpaca_order_id = None
+            
+            if api_key and api_secret:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        url = 'https://paper-api.alpaca.markets/v2/orders'
+                        headers = {
+                            'APCA-API-KEY-ID': api_key,
+                            'APCA-API-SECRET-KEY': api_secret,
+                            'Content-Type': 'application/json'
+                        }
+                        order_data = {
+                            'symbol': symbol,
+                            'qty': shares,
+                            'side': 'buy' if signal['side'] == 'long' else 'sell',
+                            'type': 'market',
+                            'time_in_force': 'day'
+                        }
+                        
+                        async with session.post(url, headers=headers, json=order_data) as resp:
+                            if resp.status == 200:
+                                order = await resp.json()
+                                alpaca_order_id = order['id']
+                                logger.info(f"📄 PAPER ORDER via Alpaca: {alpaca_order_id}")
+                            else:
+                                logger.warning(f"⚠️ Alpaca order failed: {resp.status} - falling back to local simulation")
+                except Exception as e:
+                    logger.warning(f"⚠️ Alpaca API error: {e} - using local simulation")
+            else:
+                logger.info("📝 Local paper trade simulation (no Alpaca keys)")
             
             position = {
                 'id': f"{symbol}_{int(datetime.now().timestamp())}",
@@ -291,7 +330,8 @@ class AggressiveTrader:
                 'tp_price': tp_price,
                 'sl_price': sl_price,
                 'opened_at': datetime.now().isoformat(),
-                'confidence': signal['confidence']
+                'confidence': signal['confidence'],
+                'alpaca_order_id': alpaca_order_id
             }
             
             self.positions.append(position)
@@ -543,9 +583,14 @@ HTML = """
             // Create charts for active positions
             activeSymbols.forEach(symbol => {
                 if (!charts[symbol]) {
+                    const position = (data.positions || []).find(p => p.symbol === symbol);
+                    const direction = position ? position.side.toUpperCase() : 'LONG';
+                    const dirColor = position && position.side === 'long' ? '#0f0' : '#f0f';
+                    
                     const box = document.createElement('div');
                     box.className = 'chart-box';
                     box.id = `chart-${symbol}`;
+                    box.innerHTML = `<h3>${symbol} <span style="color: ${dirColor}; border: 1px solid ${dirColor}; padding: 2px 8px; border-radius: 3px; font-size: 0.8em;">${direction}</span></h3>`;
                     
                     const canvas = document.createElement('canvas');
                     box.appendChild(canvas);
