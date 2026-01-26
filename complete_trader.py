@@ -104,6 +104,7 @@ class AggressiveTrader:
         }
         
         tick_count = 0
+        first_log = True
         
         while self.running:
             try:
@@ -116,34 +117,50 @@ class AggressiveTrader:
                             async with session.get(url, headers=headers) as resp:
                                 if resp.status == 200:
                                     data = await resp.json()
+                                    
+                                    if first_log:
+                                        logger.info(f"📥 RAW API RESPONSE: {json.dumps(data, indent=2)[:500]}")
+                                        first_log = False
+                                    
                                     trades = data.get('trades', {})
                                     if symbol in trades:
-                                        price = float(trades[symbol]['p'])
+                                        trade_data = trades[symbol]
+                                        price = float(trade_data['p'])
+                                        timestamp = trade_data.get('t', '')
                                         
                                         self.last_prices[symbol] = price
                                         self.price_history[symbol].append({
                                             'price': price,
-                                            'time': datetime.now().isoformat()
+                                            'time': datetime.now().isoformat(),
+                                            'trade_time': timestamp
                                         })
                                         
                                         state['market_prices'][symbol] = {
                                             'price': price,
-                                            'timestamp': datetime.now().isoformat()
+                                            'timestamp': datetime.now().isoformat(),
+                                            'trade_timestamp': timestamp
                                         }
                                         
                                         tick_count += 1
                                         if tick_count % 25 == 0:
-                                            logger.info(f"💰 {symbol}: ${price:,.2f}")
+                                            logger.info(f"💰 {symbol}: ${price:,.4f} @ {timestamp}")
+                                    else:
+                                        logger.error(f"No trade data for {symbol} in response: {data}")
                                 else:
-                                    logger.error(f"Failed {symbol}: {resp.status}")
+                                    error_text = await resp.text()
+                                    logger.error(f"Failed {symbol}: {resp.status} - {error_text}")
                         except Exception as e:
                             logger.error(f"Error {symbol}: {e}")
+                            import traceback
+                            traceback.print_exc()
                 
                 await self._broadcast()
                 await asyncio.sleep(1)
                 
             except Exception as e:
                 logger.error(f"💥 Price feed error: {e}")
+                import traceback
+                traceback.print_exc()
                 await asyncio.sleep(5)
     
     async def _candle_builder(self):
