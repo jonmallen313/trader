@@ -529,7 +529,8 @@ class AggressiveTrader:
                 predicted_move_pct = 0.01  # Fallback to 1%
         else:
             # Estimate move from recent volatility
-            volatility = np.std(prices[-min(20, len(prices)):]) / np.mean(prices[-min(20, len(prices)):])\n            predicted_move_pct = max(0.005, min(volatility * 2, 0.025))  # 0.5% to 2.5%
+            volatility = np.std(prices[-min(20, len(prices)):]) / np.mean(prices[-min(20, len(prices)):])
+            predicted_move_pct = max(0.005, min(volatility * 2, 0.025))  # 0.5% to 2.5%
         
         logger.info(f"🎯 FULL SETUP: {symbol} {bias} | Regime:{regime['type']} Setup:{setup['type']} Trigger:{trigger['type']} | Conf:{confidence*100:.1f}% | Predicted Move: {predicted_move_pct*100:.2f}%")
         
@@ -1151,14 +1152,52 @@ HTML = """
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: monospace; background: #000; color: #0f0; padding: 20px; }
-        .container { max-width: 1800px; margin: 0 auto; }
+        .container { max-width: 100%; margin: 0 auto; width: 100%; }
         .header { text-align: center; margin-bottom: 20px; border: 2px solid #0f0; padding: 20px; }
         .header h1 { font-size: 2em; }
-        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 20px; }
         .stat { border: 1px solid #0f0; padding: 15px; text-align: center; }
         .stat-value { font-size: 2em; font-weight: bold; }
-        .charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
-        .chart-box { border: 1px solid #0f0; padding: 10px; height: 250px; }
+        
+        /* RESPONSIVE CHARTS: Horizontal fill prioritized, wraps to new rows as needed */
+        .charts { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 10px; 
+            margin-bottom: 20px;
+            width: 100%;
+        }
+        .chart-box { 
+            border: 1px solid #0f0; 
+            padding: 10px; 
+            min-height: 250px;
+            height: auto;
+            width: 100%;
+        }
+        .chart-box canvas {
+            width: 100% !important;
+            height: 220px !important;
+        }
+        
+        /* More charts fit horizontally on larger screens */
+        @media (min-width: 1400px) {
+            .charts { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+        }
+        @media (min-width: 1800px) {
+            .charts { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+        }
+        @media (min-width: 2400px) {
+            .charts { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+        }
+        
+        /* Fewer charts on smaller screens */
+        @media (max-width: 1000px) {
+            .charts { grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); }
+        }
+        @media (max-width: 768px) {
+            .charts { grid-template-columns: 1fr; }
+        }
+        
         .positions, .trades { border: 1px solid #0f0; padding: 15px; margin-bottom: 20px; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 8px; border: 1px solid #0f0; text-align: left; }
