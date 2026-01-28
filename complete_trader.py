@@ -62,13 +62,23 @@ class AggressiveTrader:
         self.trades = self._load_trades()
         self.running = False
         
-        # Candle data for charts (1-second bars)
+        # Candle data for charts (1-second bars) - EXPANDED to 15+ markets
         self.candles = {
-            'BTC/USD': deque(maxlen=300),   # 5 min of 1s candles
+            'BTC/USD': deque(maxlen=300),
             'ETH/USD': deque(maxlen=300),
             'SOL/USD': deque(maxlen=300),
             'AVAX/USD': deque(maxlen=300),
-            'DOGE/USD': deque(maxlen=300)
+            'DOGE/USD': deque(maxlen=300),
+            'MATIC/USD': deque(maxlen=300),
+            'ADA/USD': deque(maxlen=300),
+            'DOT/USD': deque(maxlen=300),
+            'LINK/USD': deque(maxlen=300),
+            'UNI/USD': deque(maxlen=300),
+            'ATOM/USD': deque(maxlen=300),
+            'LTC/USD': deque(maxlen=300),
+            'XRP/USD': deque(maxlen=300),
+            'TRX/USD': deque(maxlen=300),
+            'BCH/USD': deque(maxlen=300)
         }
         
         # Price tracking
@@ -247,7 +257,17 @@ class AggressiveTrader:
             'ETH/USD': 'ETH/USD',
             'SOL/USD': 'SOL/USD',
             'AVAX/USD': 'AVAX/USD',
-            'DOGE/USD': 'DOGE/USD'
+            'DOGE/USD': 'DOGE/USD',
+            'MATIC/USD': 'MATIC/USD',
+            'ADA/USD': 'ADA/USD',
+            'DOT/USD': 'DOT/USD',
+            'LINK/USD': 'LINK/USD',
+            'UNI/USD': 'UNI/USD',
+            'ATOM/USD': 'ATOM/USD',
+            'LTC/USD': 'LTC/USD',
+            'XRP/USD': 'XRP/USD',
+            'TRX/USD': 'TRX/USD',
+            'BCH/USD': 'BCH/USD'
         }
         
         pair_names = list(kraken_pairs.values())
@@ -315,24 +335,29 @@ class AggressiveTrader:
                 await asyncio.sleep(5)
     
     async def _candle_builder(self):
-        """Build 1-second candlesticks."""
+        """Build 1-second candlesticks continuously."""
         logger.info("🕯️ Candle builder starting in 2 seconds...")
         await asyncio.sleep(2)  # Wait for initial prices
         
         candle_count = 0
+        last_broadcast = datetime.now()
+        
         while self.running:
             try:
+                updated_any = False
+                
                 for symbol in self.symbols:
                     if symbol not in self.price_history or len(self.price_history[symbol]) == 0:
                         continue
                     
-                    # Get last second of prices
+                    # Get last second of prices (or whatever we have)
                     recent = list(self.price_history[symbol])[-10:]  # Last 10 ticks
                     if not recent:
                         continue
                     
                     prices = [p['price'] for p in recent]
                     
+                    # Always create a candle even if just repeating last price
                     candle = {
                         'time': datetime.now().isoformat(),
                         'open': prices[0],
@@ -344,12 +369,17 @@ class AggressiveTrader:
                     
                     self.candles[symbol].append(candle)
                     state['candles'][symbol] = list(self.candles[symbol])
+                    updated_any = True
                     
                     candle_count += 1
-                    if candle_count % 25 == 0:  # Log every 25 candles
+                    if candle_count % 50 == 0:  # Log every 50 candles
                         logger.info(f"🕯️ Built {candle_count} candles | {symbol}: ${prices[-1]:.2f}")
                 
-                await self._broadcast()
+                # Broadcast at least every 2 seconds even if no new candles
+                if updated_any or (datetime.now() - last_broadcast).total_seconds() >= 2:
+                    await self._broadcast()
+                    last_broadcast = datetime.now()
+                
                 await asyncio.sleep(1)  # Build every 1 second
                 
             except Exception as e:
@@ -857,8 +887,14 @@ class AggressiveTrader:
             # FULL EXIT
             pnl = position['value'] * pnl_pct
             
-            self.balance += pnl
+            # Update balance (handles both profits AND losses)
+            old_balance = self.balance
+            self.balance += pnl  # Adds positive pnl OR subtracts negative pnl
             state['balance'] = self.balance
+            
+            # Log balance change for clarity
+            balance_change = self.balance - old_balance
+            logger.info(f"💵 Balance: ${old_balance:.2f} → ${self.balance:.2f} ({balance_change:+.2f})")
             
             trade = {
                 **position,
