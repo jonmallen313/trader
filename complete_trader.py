@@ -740,13 +740,9 @@ class AggressiveTrader:
                     else:
                         logger.info(f"⚡ Ignoring structure (${structure_target:.2f}) - using prediction: ${tp_price:.2f}")
             
-            # Calculate R:R ratio achieved
+            # Calculate R:R ratio for logging (doesn't block trade)
             actual_rr = abs(tp_price - entry_price) / abs(entry_price - sl_price)
-            
-            # Accept lower R:R for aggressive trading (0.4:1 minimum)
-            if actual_rr < 0.4:
-                logger.warning(f"⚠️ Poor R:R {actual_rr:.1f}:1 for {symbol} - skipping trade")
-                return
+            logger.info(f"📊 Trade R:R ratio: {actual_rr:.2f}:1")
             
             # FRACTIONAL CRYPTO TRADING - Alpaca supports fractions
             shares = round(position_value / entry_price, 8)  # Up to 8 decimals
