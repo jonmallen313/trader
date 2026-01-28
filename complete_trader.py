@@ -1272,7 +1272,7 @@ HTML = """
             document.getElementById('balance').textContent = `$${data.balance.toFixed(2)}`;
             
             // P&L: Only REALIZED profit from closed trades
-            const realizedPnl = data.balance - 100;  // Balance includes all closed trades
+            const realizedPnl = data.balance - 1000;  // Starting balance is $1000
             const pnlEl = document.getElementById('pnl');
             pnlEl.textContent = `$${realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(2)}`;
             pnlEl.className = `stat-value ${realizedPnl >= 0 ? 'positive' : 'negative'}`;
@@ -1291,8 +1291,8 @@ HTML = """
             // Positions table
             updatePositions(data.positions || []);
             
-            // Trades table
-            updateTrades(trades);
+            // Trades table - use data.trades (already defined above as closedTrades)
+            updateTrades(closedTrades);
         }
         
         function updateCharts(data) {
