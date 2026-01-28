@@ -1620,46 +1620,6 @@ HTML = """
             ctx.fillStyle = trade.pnl >= 0 ? '#0f0' : '#f00';
             ctx.fillRect(width - 9, exitY - 2, 4, 4);  // Exit marker (green/red)
         }
-            
-            // Get price range including entry and exit
-            const allPrices = [...prices, entryPrice, exitPrice];
-            const minPrice = Math.min(...allPrices);
-            const maxPrice = Math.max(...allPrices);
-            const priceRange = maxPrice - minPrice || 1;
-            
-            // Draw price line
-            ctx.strokeStyle = '#0f0';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            prices.forEach((price, i) => {
-                const x = (i / (prices.length - 1 || 1)) * width;
-                const y = height - ((price - minPrice) / priceRange) * height;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            });
-            ctx.stroke();
-            
-            // Draw entry line (yellow)
-            const entryY = height - ((entryPrice - minPrice) / priceRange) * height;
-            ctx.strokeStyle = '#ff0';
-            ctx.setLineDash([2, 2]);
-            ctx.beginPath();
-            ctx.moveTo(0, entryY);
-            ctx.lineTo(width, entryY);
-            ctx.stroke();
-            
-            // Draw exit line (green or red)
-            const exitY = height - ((exitPrice - minPrice) / priceRange) * height;
-            ctx.strokeStyle = trade.pnl >= 0 ? '#0f0' : '#f00';
-            ctx.setLineDash([2, 2]);
-            ctx.beginPath();
-            ctx.moveTo(0, exitY);
-            ctx.lineTo(width, exitY);
-            ctx.stroke();
-            
-            // Reset line dash
-            ctx.setLineDash([]);
-        }
     </script>
 </body>
 </html>
