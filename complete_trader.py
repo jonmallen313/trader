@@ -530,7 +530,8 @@ class AggressiveTrader:
         else:
             # Estimate move from recent volatility
             volatility = np.std(prices[-min(20, len(prices)):]) / np.mean(prices[-min(20, len(prices)):])
-            predicted_move_pct = max(0.005, min(volatility * 2, 0.025))  # 0.5% to 2.5%
+            # Larger predicted moves: 1% to 3%
+            predicted_move_pct = max(0.01, min(volatility * 3, 0.03))
         
         logger.info(f"🎯 FULL SETUP: {symbol} {bias} | Regime:{regime['type']} Setup:{setup['type']} Trigger:{trigger['type']} | Conf:{confidence*100:.1f}% | Predicted Move: {predicted_move_pct*100:.2f}%")
         
@@ -712,28 +713,38 @@ class AggressiveTrader:
                 # TP based on ML prediction (not fixed 2R)
                 tp_price = entry_price + (entry_price * predicted_move)
                 
-                # Respect structure - don't set TP beyond recent high
+                # Only adjust to structure if it doesn't kill the trade
                 structure_target = recent_high
                 if tp_price > structure_target and structure_target > entry_price:
-                    tp_price = structure_target
-                    logger.info(f"📍 TP adjusted to structure: ${tp_price:.2f}")
+                    # Check if structure adjustment would still give acceptable R:R
+                    temp_rr = (structure_target - entry_price) / (entry_price - sl_price)
+                    if temp_rr >= 0.5:  # Only adjust if R:R stays > 0.5
+                        tp_price = structure_target
+                        logger.info(f"📍 TP adjusted to structure: ${tp_price:.2f} (R:R {temp_rr:.1f}:1)")
+                    else:
+                        logger.info(f"⚡ Ignoring structure (${structure_target:.2f}) - using prediction: ${tp_price:.2f}")
             else:
                 # SHORT: Tight SL, TP based on ML prediction
                 sl_price = entry_price + max(atr * 0.8, entry_price * 0.003)  # Tight stop: 0.3% min
                 # TP based on ML prediction (not fixed 2R)
                 tp_price = entry_price - (entry_price * predicted_move)
                 
-                # Respect structure - don't set TP beyond recent low
+                # Only adjust to structure if it doesn't kill the trade
                 structure_target = recent_low
                 if tp_price < structure_target and structure_target < entry_price:
-                    tp_price = structure_target
-                    logger.info(f"📍 TP adjusted to structure: ${tp_price:.2f}")
+                    # Check if structure adjustment would still give acceptable R:R
+                    temp_rr = (entry_price - structure_target) / (sl_price - entry_price)
+                    if temp_rr >= 0.5:  # Only adjust if R:R stays > 0.5
+                        tp_price = structure_target
+                        logger.info(f"📍 TP adjusted to structure: ${tp_price:.2f} (R:R {temp_rr:.1f}:1)")
+                    else:
+                        logger.info(f"⚡ Ignoring structure (${structure_target:.2f}) - using prediction: ${tp_price:.2f}")
             
             # Calculate R:R ratio achieved
             actual_rr = abs(tp_price - entry_price) / abs(entry_price - sl_price)
             
-            # Accept any positive R:R (prediction-based TP is smarter than fixed ratio)
-            if actual_rr < 0.8:
+            # Accept lower R:R for aggressive trading (0.4:1 minimum)
+            if actual_rr < 0.4:
                 logger.warning(f"⚠️ Poor R:R {actual_rr:.1f}:1 for {symbol} - skipping trade")
                 return
             
