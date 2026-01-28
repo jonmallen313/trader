@@ -402,7 +402,7 @@ class AggressiveTrader:
                         last_trade_time[symbol] = datetime.now()
                     elif scan_count % 40 == 0:  # Log debug info occasionally
                         history_len = len(self.price_history.get(symbol, []))
-                        if history_len >= 30:
+                        if history_len >= 10:  # Lower from 30 to 10
                             # Show why no signal
                             prices = np.array([p['price'] for p in self.price_history[symbol]])
                             features = self._calculate_features(prices)
@@ -410,7 +410,7 @@ class AggressiveTrader:
                                 rsi, macd, bb_pos, trend = features[:4]
                                 logger.info(f"🔍 {symbol} ({history_len} ticks) | RSI:{rsi:.1f} MACD:{macd:.5f} BB:{bb_pos:.2f} Trend:{trend:.5f}")
                         else:
-                            logger.info(f"🔍 {symbol} | Waiting for data: {history_len}/30 ticks")
+                            logger.info(f"🔍 {symbol} | Ready soon: {history_len}/10 ticks")
                 
                 await asyncio.sleep(1)  # Check every second
                 
@@ -421,7 +421,7 @@ class AggressiveTrader:
     
     def _get_signal(self, symbol: str) -> dict:
         """PROFESSIONAL signal detection: Regime → Bias → Setup → Trigger."""
-        if len(self.price_history[symbol]) < 60:  # Need 60 ticks for higher TF
+        if len(self.price_history[symbol]) < 10:  # AGGRESSIVE: Only 10 ticks needed
             return None
         
         history = list(self.price_history[symbol])
@@ -467,180 +467,55 @@ class AggressiveTrader:
     
     def _check_market_regime(self, prices: np.ndarray) -> dict:
         """STEP 1: Decide if market conditions allow trading."""
-        if len(prices) < 30:
+        if len(prices) < 10:  # AGGRESSIVE: Only 10 ticks
             return {'tradeable': False, 'type': 'insufficient_data', 'quality': 0}
         
-        # Calculate ADX (trend strength)
-        adx = self._calculate_adx(prices)
+        # AGGRESSIVE MODE: Always tradeable with quality based on volatility
+        atr = np.std(np.diff(prices[-min(14, len(prices)):])) / np.mean(prices[-min(14, len(prices)):])
         
-        # Calculate ATR (volatility)
-        atr = np.std(np.diff(prices[-14:])) / np.mean(prices[-14:])
+        # Quality score (higher volatility = better)
+        quality = min(atr / 0.0001, 1.0)  # Any volatility is good
         
-        # Spread check (bid-ask proxy using price variance)
-        spread_proxy = (np.max(prices[-5:]) - np.min(prices[-5:])) / np.mean(prices[-5:])
-        
-        # REGIME FILTERS (non-negotiable)
-        if adx < self.min_adx:
-            return {'tradeable': False, 'type': 'ranging', 'quality': 0}
-        
-        if atr < self.min_volatility:
-            return {'tradeable': False, 'type': 'low_volatility', 'quality': 0}
-        
-        if spread_proxy > self.max_spread_pct:
-            return {'tradeable': False, 'type': 'wide_spread', 'quality': 0}
-        
-        # Regime is TRADEABLE
-        regime_type = 'trending' if adx > 25 else 'weak_trend'
-        quality = min((adx - self.min_adx) / 30 + (atr / self.min_volatility) * 0.3, 1.0)
-        
-        return {'tradeable': True, 'type': regime_type, 'quality': quality}
+        return {'tradeable': True, 'type': 'aggressive', 'quality': max(quality, 0.6)}
     
     def _get_directional_bias(self, prices: np.ndarray) -> str:
         """STEP 2: Decide bias first, not entry (LONG | SHORT | NEUTRAL)."""
-        if len(prices) < 60:
+        if len(prices) < 10:  # AGGRESSIVE: Only 10 ticks needed
             return 'NEUTRAL'
         
-        # Higher timeframe structure (use last 60 ticks as proxy for 15m)
-        htf_prices = prices[-60:]
-        htf_sma = np.mean(htf_prices)
+        # AGGRESSIVE: Simple momentum-based bias
         current_price = prices[-1]
         
-        # VWAP proxy (volume-weighted using tick count as volume)
-        vwap = np.mean(prices[-30:])  # Simple average as VWAP proxy
-        vwap_deviation = (current_price - vwap) / vwap
+        # Use shorter lookback for faster signals
+        lookback = min(10, len(prices))
+        sma = np.mean(prices[-lookback:])
+        momentum = (prices[-1] - prices[-lookback]) / prices[-lookback]
         
-        # Trend direction (higher highs / lower lows)
-        recent_high = np.max(prices[-20:])
-        recent_low = np.min(prices[-20:])
-        older_high = np.max(prices[-40:-20])
-        older_low = np.min(prices[-40:-20])
-        
-        bullish_structure = recent_high > older_high and recent_low > older_low
-        bearish_structure = recent_high < older_high and recent_low < older_low
-        
-        # BIAS DECISION
-        bullish_signals = 0
-        bearish_signals = 0
-        
-        if current_price > htf_sma:
-            bullish_signals += 1
-        else:
-            bearish_signals += 1
-        
-        if vwap_deviation > 0.001:  # Above VWAP
-            bullish_signals += 1
-        elif vwap_deviation < -0.001:  # Below VWAP
-            bearish_signals += 1
-        
-        if bullish_structure:
-            bullish_signals += 2  # Structure is weighted heavily
-        elif bearish_structure:
-            bearish_signals += 2
-        
-        # Require clear bias (3+ signals)
-        if bullish_signals >= 3:
+        # Simple bias decision - just need ANY momentum
+        if current_price > sma or momentum > 0.0001:  # Bullish if above SMA OR positive momentum
             return 'LONG'
-        elif bearish_signals >= 3:
+        elif current_price < sma or momentum < -0.0001:  # Bearish if below SMA OR negative momentum
             return 'SHORT'
         else:
-            return 'NEUTRAL'  # NO TRADE
+            # Even if neutral, pick a side based on last price movement
+            return 'LONG' if prices[-1] > prices[-2] else 'SHORT'
     
     def _identify_setup_zone(self, prices: np.ndarray, bias: str) -> dict:
         """STEP 3: Define WHERE trades are allowed (setup zones)."""
-        if len(prices) < 30:
-            return {'valid': False, 'type': 'none', 'strength': 0}
-        
-        current_price = prices[-1]
-        
-        # Calculate support/resistance levels
-        recent_high = np.max(prices[-20:])
-        recent_low = np.min(prices[-20:])
-        pivot = (recent_high + recent_low) / 2
-        
-        # VWAP reversion zone
-        vwap = np.mean(prices[-30:])
-        dist_from_vwap = abs(current_price - vwap) / vwap
-        
-        # Fair value gap detection (large price jump = imbalance)
-        price_changes = np.diff(prices[-10:])
-        largest_gap = np.max(np.abs(price_changes)) / prices[-10]
-        
-        # SETUP VALIDATION
-        setup_strength = 0
-        setup_type = 'none'
-        
-        if bias == 'LONG':
-            # LONG setups: liquidity sweep below low, VWAP support, range low reclaim
-            if current_price < recent_low * 1.001:  # Liquidity sweep (just below low)
-                setup_type = 'liquidity_sweep'
-                setup_strength = 0.9
-            elif abs(current_price - vwap) < vwap * 0.005 and current_price < vwap:  # VWAP reversion
-                setup_type = 'vwap_support'
-                setup_strength = 0.7
-            elif current_price > pivot and current_price < pivot * 1.01:  # Pivot reclaim
-                setup_type = 'pivot_reclaim'
-                setup_strength = 0.8
-        
-        elif bias == 'SHORT':
-            # SHORT setups: liquidity sweep above high, VWAP resistance, range high rejection
-            if current_price > recent_high * 0.999:  # Liquidity sweep (just above high)
-                setup_type = 'liquidity_sweep'
-                setup_strength = 0.9
-            elif abs(current_price - vwap) < vwap * 0.005 and current_price > vwap:  # VWAP reversion
-                setup_type = 'vwap_resistance'
-                setup_strength = 0.7
-            elif current_price < pivot and current_price > pivot * 0.99:  # Pivot rejection
-                setup_type = 'pivot_rejection'
-                setup_strength = 0.8
-        
+        # AGGRESSIVE: Any price is a valid setup
         return {
-            'valid': setup_strength > 0,
-            'type': setup_type,
-            'strength': setup_strength
+            'valid': True,
+            'type': 'aggressive_entry',
+            'strength': 0.8  # High confidence in aggressive mode
         }
     
     def _check_trigger(self, prices: np.ndarray, bias: str, setup: dict) -> dict:
         """STEP 4: Micro confirmation - answers 'now?', not 'should we?'"""
-        if len(prices) < 10:
-            return {'confirmed': False, 'type': 'none', 'strength': 0}
-        
-        # Volume delta proxy (tick velocity)
-        recent_ticks = len(prices[-5:])
-        older_ticks = len(prices[-10:-5])
-        volume_shift = recent_ticks > older_ticks
-        
-        # Price momentum (displacement)
-        momentum = (prices[-1] - prices[-5]) / prices[-5]
-        
-        # Structure break (lower timeframe)
-        micro_high = np.max(prices[-5:])
-        micro_low = np.min(prices[-5:])
-        
-        trigger_strength = 0
-        trigger_type = 'none'
-        
-        if bias == 'LONG':
-            # LONG triggers: reclaim after sweep, momentum shift, structure break up
-            if momentum > 0.0005 and volume_shift:  # Momentum + volume
-                trigger_type = 'momentum_shift'
-                trigger_strength = 0.8
-            elif prices[-1] > micro_high * 0.9995:  # Reclaim of recent high
-                trigger_type = 'structure_break'
-                trigger_strength = 0.7
-        
-        elif bias == 'SHORT':
-            # SHORT triggers: rejection after sweep, momentum shift down, structure break down
-            if momentum < -0.0005 and volume_shift:  # Momentum + volume
-                trigger_type = 'momentum_shift'
-                trigger_strength = 0.8
-            elif prices[-1] < micro_low * 1.0005:  # Break of recent low
-                trigger_type = 'structure_break'
-                trigger_strength = 0.7
-        
+        # AGGRESSIVE: Always trigger immediately
         return {
-            'confirmed': trigger_strength > 0,
-            'type': trigger_type,
-            'strength': trigger_strength
+            'confirmed': True,
+            'type': 'immediate_entry',
+            'strength': 0.8  # High confidence - trade NOW
         }
     
     def _calculate_adx(self, prices: np.ndarray, period: int = 14) -> float:
