@@ -38,7 +38,7 @@ app = FastAPI(title="AI Trader")
 
 # Global state
 state = {
-    'balance': 100.0,
+    'balance': 1000.0,
     'positions': [],
     'trades': [],
     'candles': {},  # {symbol: [candles]}
@@ -168,8 +168,8 @@ class AggressiveTrader:
             logger.info(f"💰 Loaded balance: ${balance:.2f}")
             return balance
         else:
-            logger.info("💰 Starting with $100.00")
-            return 100.0
+            logger.info("💰 Starting with $1000.00")
+            return 1000.0
     
     def _save_balance(self):
         """Save current balance to database."""
@@ -433,7 +433,7 @@ class AggressiveTrader:
                     await asyncio.sleep(2)
                     continue
                 
-                if self.balance < 20:  # Need at least $20
+                if self.balance < 200:  # Need at least $200 (for 3 positions minimum)
                     logger.warning("Balance too low to trade")
                     await asyncio.sleep(10)
                     continue
