@@ -77,9 +77,18 @@ class AggressiveTrader:
         
         # Trading params
         self.symbols = list(self.candles.keys())
-        self.position_size_pct = 0.08  # 8% per trade - more conservative
-        self.max_positions = 30
-        self.trade_interval = 5  # 5 seconds between trades - less spammy
+        self.position_size_pct = 0.067  # ~6.7% per trade (100/15)
+        self.max_positions = 15
+        self.trade_interval = 3  # 3 seconds between trades (more aggressive)
+        
+        # MARKET REGIME THRESHOLDS (non-negotiable filters)
+        self.min_adx = 20  # Minimum trend strength
+        self.min_volatility = 0.0003  # Minimum 0.03% ATR
+        self.max_spread_pct = 0.002  # Max 0.2% spread
+        
+        # RISK MODEL (optimize expectancy, not win rate)
+        self.target_rr_ratio = 2.0  # 1:2 minimum risk/reward
+        self.partial_tp_ratio = 1.0  # Take 50% at 1:1
         
         # ML Model for REAL AI predictions
         self.ml_model = None
@@ -411,79 +420,257 @@ class AggressiveTrader:
                 await asyncio.sleep(2)
     
     def _get_signal(self, symbol: str) -> dict:
-        """REAL AI signal using ML model + technical indicators."""
-        if len(self.price_history[symbol]) < 30:  # Need enough data
+        """PROFESSIONAL signal detection: Regime → Bias → Setup → Trigger."""
+        if len(self.price_history[symbol]) < 60:  # Need 60 ticks for higher TF
             return None
         
         history = list(self.price_history[symbol])
         prices = np.array([p['price'] for p in history])
         
-        # Calculate REAL technical indicators
-        features = self._calculate_features(prices)
+        # STEP 1: MARKET REGIME FILTER (non-negotiable)
+        regime = self._check_market_regime(prices)
+        if not regime['tradeable']:
+            return None  # NO TRADE without regime agreement
         
-        if features is None:
-            return None
+        # STEP 2: DIRECTIONAL BIAS (macro alignment)
+        bias = self._get_directional_bias(prices)
+        if bias == 'NEUTRAL':
+            return None  # NO TRADE without clear bias
         
-        # Use ML model if trained, otherwise use technical analysis
-        if HAS_ML and self.ml_model is not None:
-            # ML PREDICTION
-            features_scaled = self.scaler.transform([features])
-            prediction = self.ml_model.predict(features_scaled)[0]
-            probabilities = self.ml_model.predict_proba(features_scaled)[0]
-            
-            # Only trade on HIGH confidence predictions
-            confidence = np.max(probabilities)
-            
-            if confidence < 0.65:  # Require 65% confidence minimum
-                return None
-            
-            if prediction == 1:  # LONG signal
-                logger.info(f"🤖 ML LONG SIGNAL: {symbol} | Confidence: {confidence*100:.1f}%")
-                return {
-                    'side': 'long',
-                    'entry_price': prices[-1],
-                    'confidence': confidence
-                }
-            elif prediction == 2:  # SHORT signal
-                logger.info(f"🤖 ML SHORT SIGNAL: {symbol} | Confidence: {confidence*100:.1f}%")
-                return {
-                    'side': 'short',
-                    'entry_price': prices[-1],
-                    'confidence': confidence
-                }
+        # STEP 3: SETUP ZONE (area, not signal)
+        setup = self._identify_setup_zone(prices, bias)
+        if not setup['valid']:
+            return None  # Price NOT in setup zone
+        
+        # STEP 4: TRIGGER (micro confirmation)
+        trigger = self._check_trigger(prices, bias, setup)
+        if not trigger['confirmed']:
+            return None  # No confirmation yet
+        
+        # ALL CONDITIONS MET - allow trade
+        confidence = min(
+            regime['quality'] * 0.3 +
+            setup['strength'] * 0.4 +
+            trigger['strength'] * 0.3,
+            0.95
+        )
+        
+        logger.info(f"🎯 FULL SETUP: {symbol} {bias} | Regime:{regime['type']} Setup:{setup['type']} Trigger:{trigger['type']} | Conf:{confidence*100:.1f}%")
+        
+        return {
+            'side': bias.lower(),
+            'entry_price': prices[-1],
+            'confidence': confidence,
+            'setup_type': setup['type'],
+            'regime': regime['type']
+        }
+    
+    def _check_market_regime(self, prices: np.ndarray) -> dict:
+        """STEP 1: Decide if market conditions allow trading."""
+        if len(prices) < 30:
+            return {'tradeable': False, 'type': 'insufficient_data', 'quality': 0}
+        
+        # Calculate ADX (trend strength)
+        adx = self._calculate_adx(prices)
+        
+        # Calculate ATR (volatility)
+        atr = np.std(np.diff(prices[-14:])) / np.mean(prices[-14:])
+        
+        # Spread check (bid-ask proxy using price variance)
+        spread_proxy = (np.max(prices[-5:]) - np.min(prices[-5:])) / np.mean(prices[-5:])
+        
+        # REGIME FILTERS (non-negotiable)
+        if adx < self.min_adx:
+            return {'tradeable': False, 'type': 'ranging', 'quality': 0}
+        
+        if atr < self.min_volatility:
+            return {'tradeable': False, 'type': 'low_volatility', 'quality': 0}
+        
+        if spread_proxy > self.max_spread_pct:
+            return {'tradeable': False, 'type': 'wide_spread', 'quality': 0}
+        
+        # Regime is TRADEABLE
+        regime_type = 'trending' if adx > 25 else 'weak_trend'
+        quality = min((adx - self.min_adx) / 30 + (atr / self.min_volatility) * 0.3, 1.0)
+        
+        return {'tradeable': True, 'type': regime_type, 'quality': quality}
+    
+    def _get_directional_bias(self, prices: np.ndarray) -> str:
+        """STEP 2: Decide bias first, not entry (LONG | SHORT | NEUTRAL)."""
+        if len(prices) < 60:
+            return 'NEUTRAL'
+        
+        # Higher timeframe structure (use last 60 ticks as proxy for 15m)
+        htf_prices = prices[-60:]
+        htf_sma = np.mean(htf_prices)
+        current_price = prices[-1]
+        
+        # VWAP proxy (volume-weighted using tick count as volume)
+        vwap = np.mean(prices[-30:])  # Simple average as VWAP proxy
+        vwap_deviation = (current_price - vwap) / vwap
+        
+        # Trend direction (higher highs / lower lows)
+        recent_high = np.max(prices[-20:])
+        recent_low = np.min(prices[-20:])
+        older_high = np.max(prices[-40:-20])
+        older_low = np.min(prices[-40:-20])
+        
+        bullish_structure = recent_high > older_high and recent_low > older_low
+        bearish_structure = recent_high < older_high and recent_low < older_low
+        
+        # BIAS DECISION
+        bullish_signals = 0
+        bearish_signals = 0
+        
+        if current_price > htf_sma:
+            bullish_signals += 1
         else:
-            # FALLBACK: Technical analysis (better than moving averages)
-            rsi, macd, bb_position, trend_strength = features[:4]
-            
-            # LONG CONDITIONS (more realistic - at least 2 of 3 must align)
-            bullish_signals = 0
-            if rsi < 45:  # RSI oversold or neutral (was 35)
-                bullish_signals += 1
-            if macd > -0.0005:  # MACD positive or neutral (was > 0)
-                bullish_signals += 1
-            if bb_position < 0.5 and trend_strength > 0:  # Price in lower half + uptrend (was 0.3 and 0.002)
-                bullish_signals += 1
-            
-            if bullish_signals >= 2:
-                confidence = min(0.5 + (3 - bullish_signals) * 0.1 + abs(trend_strength) * 50, 0.85)
-                logger.info(f"📈 TECHNICAL LONG: {symbol} | RSI:{rsi:.1f} MACD:{macd:.5f} BB:{bb_position:.2f} Trend:{trend_strength:.5f} | Conf:{confidence*100:.1f}%")
-                return {'side': 'long', 'entry_price': prices[-1], 'confidence': confidence}
-            
-            # SHORT CONDITIONS (more realistic - at least 2 of 3 must align)
-            bearish_signals = 0
-            if rsi > 55:  # RSI overbought or neutral (was 65)
-                bearish_signals += 1
-            if macd < 0.0005:  # MACD negative or neutral (was < 0)
-                bearish_signals += 1
-            if bb_position > 0.5 and trend_strength < 0:  # Price in upper half + downtrend (was 0.7 and -0.002)
-                bearish_signals += 1
-            
-            if bearish_signals >= 2:
-                confidence = min(0.5 + (3 - bearish_signals) * 0.1 + abs(trend_strength) * 50, 0.85)
-                logger.info(f"📉 TECHNICAL SHORT: {symbol} | RSI:{rsi:.1f} MACD:{macd:.5f} BB:{bb_position:.2f} Trend:{trend_strength:.5f} | Conf:{confidence*100:.1f}%")
-                return {'side': 'short', 'entry_price': prices[-1], 'confidence': confidence}
+            bearish_signals += 1
         
-        return None
+        if vwap_deviation > 0.001:  # Above VWAP
+            bullish_signals += 1
+        elif vwap_deviation < -0.001:  # Below VWAP
+            bearish_signals += 1
+        
+        if bullish_structure:
+            bullish_signals += 2  # Structure is weighted heavily
+        elif bearish_structure:
+            bearish_signals += 2
+        
+        # Require clear bias (3+ signals)
+        if bullish_signals >= 3:
+            return 'LONG'
+        elif bearish_signals >= 3:
+            return 'SHORT'
+        else:
+            return 'NEUTRAL'  # NO TRADE
+    
+    def _identify_setup_zone(self, prices: np.ndarray, bias: str) -> dict:
+        """STEP 3: Define WHERE trades are allowed (setup zones)."""
+        if len(prices) < 30:
+            return {'valid': False, 'type': 'none', 'strength': 0}
+        
+        current_price = prices[-1]
+        
+        # Calculate support/resistance levels
+        recent_high = np.max(prices[-20:])
+        recent_low = np.min(prices[-20:])
+        pivot = (recent_high + recent_low) / 2
+        
+        # VWAP reversion zone
+        vwap = np.mean(prices[-30:])
+        dist_from_vwap = abs(current_price - vwap) / vwap
+        
+        # Fair value gap detection (large price jump = imbalance)
+        price_changes = np.diff(prices[-10:])
+        largest_gap = np.max(np.abs(price_changes)) / prices[-10]
+        
+        # SETUP VALIDATION
+        setup_strength = 0
+        setup_type = 'none'
+        
+        if bias == 'LONG':
+            # LONG setups: liquidity sweep below low, VWAP support, range low reclaim
+            if current_price < recent_low * 1.001:  # Liquidity sweep (just below low)
+                setup_type = 'liquidity_sweep'
+                setup_strength = 0.9
+            elif abs(current_price - vwap) < vwap * 0.005 and current_price < vwap:  # VWAP reversion
+                setup_type = 'vwap_support'
+                setup_strength = 0.7
+            elif current_price > pivot and current_price < pivot * 1.01:  # Pivot reclaim
+                setup_type = 'pivot_reclaim'
+                setup_strength = 0.8
+        
+        elif bias == 'SHORT':
+            # SHORT setups: liquidity sweep above high, VWAP resistance, range high rejection
+            if current_price > recent_high * 0.999:  # Liquidity sweep (just above high)
+                setup_type = 'liquidity_sweep'
+                setup_strength = 0.9
+            elif abs(current_price - vwap) < vwap * 0.005 and current_price > vwap:  # VWAP reversion
+                setup_type = 'vwap_resistance'
+                setup_strength = 0.7
+            elif current_price < pivot and current_price > pivot * 0.99:  # Pivot rejection
+                setup_type = 'pivot_rejection'
+                setup_strength = 0.8
+        
+        return {
+            'valid': setup_strength > 0,
+            'type': setup_type,
+            'strength': setup_strength
+        }
+    
+    def _check_trigger(self, prices: np.ndarray, bias: str, setup: dict) -> dict:
+        """STEP 4: Micro confirmation - answers 'now?', not 'should we?'"""
+        if len(prices) < 10:
+            return {'confirmed': False, 'type': 'none', 'strength': 0}
+        
+        # Volume delta proxy (tick velocity)
+        recent_ticks = len(prices[-5:])
+        older_ticks = len(prices[-10:-5])
+        volume_shift = recent_ticks > older_ticks
+        
+        # Price momentum (displacement)
+        momentum = (prices[-1] - prices[-5]) / prices[-5]
+        
+        # Structure break (lower timeframe)
+        micro_high = np.max(prices[-5:])
+        micro_low = np.min(prices[-5:])
+        
+        trigger_strength = 0
+        trigger_type = 'none'
+        
+        if bias == 'LONG':
+            # LONG triggers: reclaim after sweep, momentum shift, structure break up
+            if momentum > 0.0005 and volume_shift:  # Momentum + volume
+                trigger_type = 'momentum_shift'
+                trigger_strength = 0.8
+            elif prices[-1] > micro_high * 0.9995:  # Reclaim of recent high
+                trigger_type = 'structure_break'
+                trigger_strength = 0.7
+        
+        elif bias == 'SHORT':
+            # SHORT triggers: rejection after sweep, momentum shift down, structure break down
+            if momentum < -0.0005 and volume_shift:  # Momentum + volume
+                trigger_type = 'momentum_shift'
+                trigger_strength = 0.8
+            elif prices[-1] < micro_low * 1.0005:  # Break of recent low
+                trigger_type = 'structure_break'
+                trigger_strength = 0.7
+        
+        return {
+            'confirmed': trigger_strength > 0,
+            'type': trigger_type,
+            'strength': trigger_strength
+        }
+    
+    def _calculate_adx(self, prices: np.ndarray, period: int = 14) -> float:
+        """Calculate Average Directional Index (trend strength)."""
+        if len(prices) < period + 1:
+            return 0
+        
+        # True Range
+        high = prices
+        low = prices
+        close = prices
+        
+        tr = np.maximum(high[1:] - low[1:], np.abs(high[1:] - close[:-1]))
+        tr = np.maximum(tr, np.abs(low[1:] - close[:-1]))
+        
+        # Directional Movement
+        up_move = high[1:] - high[:-1]
+        down_move = low[:-1] - low[1:]
+        
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+        
+        # Smoothed indicators
+        atr = np.mean(tr[-period:])
+        plus_di = 100 * np.mean(plus_dm[-period:]) / (atr + 1e-10)
+        minus_di = 100 * np.mean(minus_dm[-period:]) / (atr + 1e-10)
+        
+        dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
+        
+        return dx
     
     def _calculate_features(self, prices: np.ndarray) -> list:
         """Calculate technical indicator features for ML."""
@@ -550,34 +737,47 @@ class AggressiveTrader:
         return ema
     
     async def _execute_trade(self, symbol: str, signal: dict):
-        """Execute PAPER TRADE via Alpaca API with SMART risk management."""
+        """Execute PAPER TRADE with STRUCTURE-BASED risk management."""
         try:
             position_value = self.balance * self.position_size_pct
             entry_price = signal['entry_price']
             
-            # ADAPTIVE TP/SL based on volatility (SMARTER risk management)
+            # STRUCTURE-BASED TP/SL (not fixed percentages)
             prices = np.array([p['price'] for p in self.price_history[symbol]])
-            volatility = np.std(prices[-14:]) / np.mean(prices[-14:])
             
-            # Base TP/SL on volatility - wider stops in volatile markets
-            base_tp = max(0.008, volatility * 3)  # Min 0.8%, scale with volatility
-            base_sl = max(0.004, volatility * 1.5)  # Min 0.4%, scale with volatility
-            
-            # Adjust based on confidence - tighter stops for low confidence
-            confidence = signal.get('confidence', 0.6)
-            tp_pct = base_tp * (0.8 + confidence * 0.4)  # Higher confidence = wider TP
-            sl_pct = base_sl * (1.2 - confidence * 0.4)  # Higher confidence = tighter SL
-            
-            # Ensure minimum risk/reward ratio of 1.5:1
-            if tp_pct / sl_pct < 1.5:
-                tp_pct = sl_pct * 1.8
+            # Find recent structure (support/resistance)
+            recent_high = np.max(prices[-20:])
+            recent_low = np.min(prices[-20:])
+            atr = np.std(prices[-14:])  # Average True Range proxy
             
             if signal['side'] == 'long':
-                tp_price = entry_price * (1 + tp_pct)
-                sl_price = entry_price * (1 - sl_pct)
+                # LONG: SL below recent low, TP at recent high or 2R
+                sl_price = recent_low - atr * 0.5  # Stop below structure
+                risk = entry_price - sl_price
+                tp_price = entry_price + (risk * self.target_rr_ratio)  # 2R target
+                
+                # Don't let TP go beyond recent high initially (structure target)
+                structure_target = recent_high
+                if tp_price > structure_target and structure_target > entry_price:
+                    tp_price = structure_target
             else:
-                tp_price = entry_price * (1 - tp_pct)
-                sl_price = entry_price * (1 + sl_pct)
+                # SHORT: SL above recent high, TP at recent low or 2R
+                sl_price = recent_high + atr * 0.5  # Stop above structure
+                risk = sl_price - entry_price
+                tp_price = entry_price - (risk * self.target_rr_ratio)  # 2R target
+                
+                # Don't let TP go beyond recent low initially (structure target)
+                structure_target = recent_low
+                if tp_price < structure_target and structure_target < entry_price:
+                    tp_price = structure_target
+            
+            # Calculate R:R ratio achieved
+            actual_rr = abs(tp_price - entry_price) / abs(entry_price - sl_price)
+            
+            # Minimum 1.5:1 R:R required
+            if actual_rr < 1.5:
+                logger.warning(f"⚠️ Poor R:R {actual_rr:.1f}:1 for {symbol} - skipping trade")
+                return
             
             # FRACTIONAL CRYPTO TRADING - Alpaca supports fractions
             shares = round(position_value / entry_price, 8)  # Up to 8 decimals
@@ -650,7 +850,7 @@ class AggressiveTrader:
             self.positions.append(position)
             state['positions'] = self.positions
             
-            logger.info(f"🎯 OPENED {symbol} {signal['side'].upper()} | ${position_value:.2f} @ ${entry_price:.2f} | Conf: {signal['confidence']:.0%}")
+            logger.info(f"🎯 OPENED {symbol} {signal['side'].upper()} | ${position_value:.2f} @ ${entry_price:.2f} | SL: ${sl_price:.2f} TP: ${tp_price:.2f} | R:R {actual_rr:.1f}:1 | Setup: {signal.get('setup_type', 'N/A')}")
             
             await self._broadcast()
             
@@ -658,7 +858,7 @@ class AggressiveTrader:
             logger.error(f"Execute trade error: {e}")
     
     async def _position_monitor(self):
-        """Monitor and close positions."""
+        """SMART position management: Partial TP, trailing, momentum exits."""
         logger.info("👁️ Position monitor starting in 10 seconds...")
         await asyncio.sleep(10)
         
@@ -680,28 +880,11 @@ class AggressiveTrader:
                     position['pnl'] = position['value'] * pnl_pct
                     position['pnl_pct'] = pnl_pct * 100
                     
-                    should_close = False
-                    reason = ""
+                    # SMART EXIT LOGIC
+                    exit_decision = self._evaluate_exit(position, current_price)
                     
-                    # Check TP/SL
-                    if position['side'] == 'long':
-                        if current_price >= position['tp_price']:
-                            should_close, reason = True, "TP"
-                        elif current_price <= position['sl_price']:
-                            should_close, reason = True, "SL"
-                    else:
-                        if current_price <= position['tp_price']:
-                            should_close, reason = True, "TP"
-                        elif current_price >= position['sl_price']:
-                            should_close, reason = True, "SL"
-                    
-                    # Time limit (2 min max)
-                    age = (datetime.now() - datetime.fromisoformat(position['opened_at'])).total_seconds()
-                    if age > 120:
-                        should_close, reason = True, "TIME"
-                    
-                    if should_close:
-                        await self._close_position(position, current_price, reason)
+                    if exit_decision['should_exit']:
+                        await self._close_position(position, current_price, exit_decision['reason'], exit_decision.get('partial', False))
                 
                 await asyncio.sleep(0.5)  # Check every 500ms
                 
@@ -709,8 +892,61 @@ class AggressiveTrader:
                 logger.error(f"Monitor error: {e}")
                 await asyncio.sleep(1)
     
-    async def _close_position(self, position, close_price, reason):
-        """Close position, calculate P&L, and TRAIN ML MODEL."""
+    def _evaluate_exit(self, position: dict, current_price: float) -> dict:
+        """PROFESSIONAL exit logic: TP/SL, partials, momentum, structure."""
+        entry = position['entry_price']
+        side = position['side']
+        
+        # Calculate R (risk units)
+        risk = abs(entry - position['sl_price'])
+        current_r = (current_price - entry) / risk if side == 'long' else (entry - current_price) / risk
+        
+        # PARTIAL TP at 1R (50% position)
+        if not position.get('partial_taken', False) and current_r >= self.partial_tp_ratio:
+            position['partial_taken'] = True
+            return {'should_exit': True, 'reason': 'PARTIAL_TP', 'partial': True}
+        
+        # FULL TP at 2R
+        if current_r >= self.target_rr_ratio:
+            return {'should_exit': True, 'reason': 'TP'}
+        
+        # STOP LOSS hit
+        if side == 'long' and current_price <= position['sl_price']:
+            return {'should_exit': True, 'reason': 'SL'}
+        elif side == 'short' and current_price >= position['sl_price']:
+            return {'should_exit': True, 'reason': 'SL'}
+        
+        # MOMENTUM DECAY exit (price stalling at profit)
+        if current_r > 0.5:  # Only check if in profit
+            prices = np.array([p['price'] for p in self.price_history[position['symbol']]][-10:])
+            if len(prices) >= 10:
+                recent_momentum = abs(prices[-1] - prices[-5]) / prices[-5]
+                if recent_momentum < 0.0001:  # Momentum stalled
+                    return {'should_exit': True, 'reason': 'MOMENTUM_DECAY'}
+        
+        # OPPOSITE LIQUIDITY (price approaching opposite side of range)
+        prices_array = np.array([p['price'] for p in self.price_history[position['symbol']]][-20:])
+        if len(prices_array) >= 20:
+            recent_high = np.max(prices_array)
+            recent_low = np.min(prices_array)
+            
+            if side == 'long' and current_price >= recent_high * 0.998:  # Near resistance
+                if current_r > 0:  # Only if profitable
+                    return {'should_exit': True, 'reason': 'STRUCTURE_RESISTANCE'}
+            elif side == 'short' and current_price <= recent_low * 1.002:  # Near support
+                if current_r > 0:
+                    return {'should_exit': True, 'reason': 'STRUCTURE_SUPPORT'}
+        
+        # TIME LIMIT (max 2 minutes per trade)
+        age = (datetime.now() - datetime.fromisoformat(position['opened_at'])).total_seconds()
+        if age > 120:
+            return {'should_exit': True, 'reason': 'TIME'}
+        
+        # HOLD position
+        return {'should_exit': False, 'reason': 'HOLD'}
+    
+    async def _close_position(self, position, close_price, reason, partial=False):
+        """Close position (full or partial), calculate P&L, and TRAIN ML MODEL."""
         try:
             entry = position['entry_price']
             
@@ -719,6 +955,24 @@ class AggressiveTrader:
             else:
                 pnl_pct = (entry - close_price) / entry
             
+            # PARTIAL EXIT (50% position)
+            if partial:
+                pnl = position['value'] * 0.5 * pnl_pct
+                position['value'] *= 0.5  # Reduce position size
+                position['shares'] *= 0.5
+                
+                self.balance += pnl
+                state['balance'] = self.balance
+                
+                logger.info(f"📊 PARTIAL EXIT {position['symbol']} {position['side']} | ${pnl:+.2f} ({pnl_pct*100:+.2f}%) | {reason}")
+                
+                # Move stop to breakeven after partial
+                position['sl_price'] = entry
+                
+                await self._broadcast()
+                return
+            
+            # FULL EXIT
             pnl = position['value'] * pnl_pct
             
             self.balance += pnl

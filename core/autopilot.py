@@ -24,7 +24,7 @@ class AutoPilotConfig:
     """Simple config - AI controls everything else."""
     initial_capital: float
     target_profit: Optional[float] = None  # Auto: 20x capital
-    max_positions: int = 5  # Auto: based on capital
+    max_positions: int = 15  # Trade entire balance across 15 positions
     broker: str = "bybit"
     testnet: bool = True
     

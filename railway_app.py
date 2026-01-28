@@ -59,10 +59,10 @@ class LiveTrader:
         self.balance = 100.0
         
         # Trading params
-        self.symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']
-        self.position_size = 0.15  # 15% per trade
-        self.max_positions = 5
-        self.min_confidence = 0.55
+        self.symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT']
+        self.position_size = 0.067  # ~6.7% per trade (100/15 positions)
+        self.max_positions = 15
+        self.min_confidence = 0.52  # More aggressive
         
     async def start(self):
         """Start trading."""
@@ -913,6 +913,30 @@ DASHBOARD_HTML = """
 """
 
 
+async def run_trader_background():
+    """Run trader in background while serving web dashboard."""
+    trader = LiveTrader()
+    await trader.start()
+
+
 if __name__ == "__main__":
+    import threading
+    
     port = int(os.getenv("PORT", 8000))
+    
+    # Start trader in background thread
+    def start_background_trader():
+        """Start trader in separate event loop."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        trader = LiveTrader()
+        loop.run_until_complete(trader.start())
+    
+    trader_thread = threading.Thread(target=start_background_trader, daemon=True)
+    trader_thread.start()
+    
+    logger.info("🚀 Background trader started")
+    logger.info(f"📊 Dashboard running on port {port}")
+    
+    # Run web server
     uvicorn.run(app, host="0.0.0.0", port=port)

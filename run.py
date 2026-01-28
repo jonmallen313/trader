@@ -3,32 +3,20 @@ COMPLETE AI TRADER
 - Real AI model (XGBoost microtrend detection)
 - Real market data (live crypto prices)
 - Real web dashboard (beautiful UI with live updates)
-- Actually works
+- ALWAYS RUNNING background trader
 """
 
 import asyncio
 import uvicorn
 import threading
-from trade_live import RealAITrader
+from background_trader import BackgroundAITrader
 from dashboard_api import app, update_trader_state
 
 
 async def run_trader(capital: float):
-    """Run the trader in background."""
-    trader = RealAITrader(capital)
-    
-    # Update dashboard state every 2 seconds
-    async def update_loop():
-        while True:
-            update_trader_state(trader)
-            await asyncio.sleep(2)
-    
-    # Run trader and update loop
-    await asyncio.gather(
-        trader.start(),
-        update_loop(),
-        return_exceptions=True
-    )
+    """Run the background trader."""
+    trader = BackgroundAITrader(capital)
+    await trader.start()
 
 
 def run_dashboard():
@@ -44,11 +32,13 @@ def run_dashboard():
 def main():
     """Main entry point."""
     print("╔" + "═" * 60 + "╗")
-    print("║" + "  🤖 AI TRADER - COMPLETE SYSTEM  ".center(60) + "║")
+    print("║" + "  🤖 AI TRADER - ALWAYS RUNNING  ".center(60) + "║")
     print("╚" + "═" * 60 + "╝")
     print()
     print("✅ Real AI Model (XGBoost)")
     print("✅ Real Market Data (Live Prices)")
+    print("✅ 15 Concurrent Positions (Maximum Profit)")
+    print("✅ ALWAYS Trading (Background Service)")
     print("✅ Real Web Dashboard (http://127.0.0.1:8000)")
     print()
     
@@ -56,9 +46,12 @@ def main():
     capital = float(capital) if capital else 100.0
     
     print()
-    print("🚀 Starting...")
+    print("🚀 Starting background trader...")
     print(f"📊 Dashboard: http://127.0.0.1:8000")
     print("⌨️  Press Ctrl+C to stop")
+    print()
+    print("⚠️  The trader will run CONTINUOUSLY in the background")
+    print("⚠️  You can close the webpage and it will keep trading")
     print()
     
     # Start dashboard in separate thread
@@ -69,7 +62,7 @@ def main():
     import time
     time.sleep(2)
     
-    # Start trader
+    # Start trader (runs forever)
     try:
         asyncio.run(run_trader(capital))
     except KeyboardInterrupt:

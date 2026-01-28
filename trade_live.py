@@ -71,9 +71,9 @@ class RealAITrader:
         }
         
         # Settings
-        self.max_positions = 5
-        self.min_confidence = 0.60  # Only trade when AI is confident
-        self.position_size_pct = 0.15  # 15% of balance per trade
+        self.max_positions = 15  # Split entire balance across 15 positions
+        self.min_confidence = 0.55  # More aggressive confidence threshold
+        self.position_size_pct = 0.067  # ~6.7% of balance per trade (100/15)
         
     async def start(self):
         """Start the real trader."""
