@@ -774,8 +774,11 @@ class AggressiveTrader:
                 'symbol': symbol,
                 'side': signal['side'],
                 'entry_price': entry_price,
+                'current_price': entry_price,  # Initialize with entry price
                 'shares': shares,
                 'value': position_value,
+                'pnl': 0.0,  # Initialize P&L at 0
+                'pnl_pct': 0.0,  # Initialize P&L% at 0
                 'tp_price': tp_price,
                 'sl_price': sl_price,
                 'opened_at': datetime.now().isoformat(),
@@ -787,6 +790,8 @@ class AggressiveTrader:
             
             self.positions.append(position)
             state['positions'] = self.positions
+            
+            logger.info(f"💰 Position value: ${position_value:.2f} | Balance remaining: ${self.balance:.2f}")
             
             logger.info(f"🎯 OPENED {symbol} {signal['side'].upper()} | ${position_value:.2f} @ ${entry_price:.2f} | SL: ${sl_price:.2f} TP: ${tp_price:.2f} | R:R {actual_rr:.1f}:1 | Setup: {signal.get('setup_type', 'N/A')}")
             
@@ -807,7 +812,9 @@ class AggressiveTrader:
                     current_price = self.last_prices.get(symbol)
                     
                     if not current_price:
-                        continue
+                        # No price update yet - use entry price as fallback
+                        current_price = position['entry_price']
+                        logger.warning(f"⚠️ No price for {symbol}, using entry price ${current_price:.2f}")
                     
                     # UPDATE LIVE P&L (unrealized for display only)
                     position['current_price'] = current_price
@@ -823,6 +830,15 @@ class AggressiveTrader:
                     # Calculate dollar P&L (unrealized)
                     position['pnl'] = position['value'] * pnl_pct
                     position['pnl_pct'] = pnl_pct * 100
+                    
+                    # Log P&L for debugging (every 10 iterations)
+                    if hasattr(self, '_pnl_log_counter'):
+                        self._pnl_log_counter = getattr(self, '_pnl_log_counter', 0) + 1
+                    else:
+                        self._pnl_log_counter = 0
+                    
+                    if self._pnl_log_counter % 10 == 0:
+                        logger.info(f"📊 {symbol} P&L: ${position['pnl']:+.2f} ({position['pnl_pct']:+.2f}%) | Value: ${position['value']:.2f} | Price: ${entry:.2f}→${current_price:.2f}")
                     
                     # TRAILING STOP: Move SL up as profit increases (but never down)
                     risk = abs(entry - position['sl_price'])
