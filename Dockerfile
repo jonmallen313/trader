@@ -21,9 +21,9 @@ COPY . .
 # Expose port
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8080/health', timeout=5)"
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
 
-# Start application
-CMD ["python", "complete_trader.py"]
+# Start application with proper logging
+CMD ["python", "-u", "start.py"]

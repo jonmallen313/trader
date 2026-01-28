@@ -1,1 +1,1 @@
-web: python complete_trader.py
+web: python -u start.py

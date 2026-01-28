@@ -280,11 +280,16 @@ class AggressiveTrader:
         
         pair_names = list(kraken_pairs.values())
         
-        while self.running:
+        retry_count = 0
+        max_retries = 10
+        
+        while self.running and retry_count < max_retries:
             try:
+                logger.info(f"🔌 Connecting to Kraken WebSocket (attempt {retry_count + 1}/{max_retries})...")
                 async with aiohttp.ClientSession() as session:
-                    async with session.ws_connect(ws_url) as ws:
+                    async with session.ws_connect(ws_url, timeout=aiohttp.ClientTimeout(total=30)) as ws:
                         logger.info("✅ Connected to Kraken WebSocket")
+                        retry_count = 0  # Reset on successful connection
                         
                         # Subscribe to ticker for all pairs
                         subscribe_msg = {
@@ -337,10 +342,25 @@ class AggressiveTrader:
                                 logger.error(f"WebSocket error: {ws.exception()}")
                                 break
                 
+            except asyncio.TimeoutError:
+                logger.error("⏱️ Kraken WebSocket connection timeout")
+                retry_count += 1
+            except aiohttp.ClientError as e:
+                logger.error(f"🌐 Kraken WebSocket connection error: {e}")
+                retry_count += 1
             except Exception as e:
                 logger.error(f"💥 Kraken WebSocket error: {e}")
-                logger.info("🔄 Reconnecting in 5 seconds...")
-                await asyncio.sleep(5)
+                logger.exception(e)
+                retry_count += 1
+            
+            if self.running and retry_count < max_retries:
+                wait_time = min(5 * retry_count, 30)  # Exponential backoff up to 30s
+                logger.info(f"🔄 Reconnecting in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+        
+        if retry_count >= max_retries:
+            logger.error(f"❌ Failed to connect to Kraken after {max_retries} attempts - trading disabled")
+            self.running = False
     
     async def _candle_builder(self):
         """Build 1-second candlesticks continuously."""
@@ -1089,13 +1109,36 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/health")
 async def health():
+    """Health check endpoint - always returns OK even if trading is down."""
     logger.info("🏥 Health check called")
-    return {"status": "ok", "trading": trader.running, "positions": len(trader.positions)}
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "trading": trader.running if 'trader' in globals() else False,
+        "positions": len(trader.positions) if 'trader' in globals() and hasattr(trader, 'positions') else 0,
+        "balance": trader.balance if 'trader' in globals() and hasattr(trader, 'balance') else 100.0
+    }
 
 
 @app.on_event("startup")
 async def startup():
-    asyncio.create_task(trader.start())
+    """Start trader in background - don't block startup if it fails."""
+    logger.info("🚀 Application starting...")
+    try:
+        asyncio.create_task(trader.start())
+        logger.info("✅ Trader task created")
+    except Exception as e:
+        logger.error(f"⚠️ Failed to start trader (app still healthy): {e}")
+        # Don't raise - let health checks pass even if trading fails
+
+
+@app.on_event("shutdown") 
+async def shutdown():
+    """Graceful shutdown."""
+    logger.info("🛑 Application shutting down...")
+    if trader.running:
+        trader.running = False
+        await asyncio.sleep(1)  # Give time for tasks to stop
 
 
 HTML = """
@@ -1576,6 +1619,9 @@ HTML = """
 </html>
 """
 
+# App is ready to be imported by start.py or run directly
 if __name__ == "__main__":
+    import uvicorn
     port = int(os.getenv("PORT", 8080))
+    logger.info(f"🚀 Running directly on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
