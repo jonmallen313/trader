@@ -62,6 +62,14 @@ class AggressiveTrader:
         self.trades = self._load_trades()
         self.running = False
         
+        # Initialize state with loaded trades
+        state['balance'] = self.balance
+        state['trades'] = self.trades[:50]  # Show last 50 on dashboard
+        
+        # Initialize state with loaded trades
+        state['balance'] = self.balance
+        state['trades'] = self.trades[:50]  # Keep last 50
+        
         # Candle data for charts (1-second bars) - EXPANDED to 15+ markets
         self.candles = {
             'BTC/USD': deque(maxlen=300),
@@ -485,14 +493,33 @@ class AggressiveTrader:
             0.95
         )
         
-        logger.info(f"🎯 FULL SETUP: {symbol} {bias} | Regime:{regime['type']} Setup:{setup['type']} Trigger:{trigger['type']} | Conf:{confidence*100:.1f}%")
+        # PREDICT PRICE MOVEMENT using features (for realistic TP)
+        features = self._calculate_features(prices)
+        predicted_move_pct = 0.01  # Default 1% move
+        
+        if features and HAS_ML:
+            # Use ML model to predict expected price movement
+            try:
+                X = np.array([features])
+                prediction = self.model.predict(X)[0] if hasattr(self.model, 'predict') else 0.5
+                # Convert prediction (0-1) to expected move percentage
+                # Higher confidence = larger expected move
+                predicted_move_pct = 0.005 + (prediction * confidence * 0.02)  # 0.5% to 2.5%
+            except:
+                predicted_move_pct = 0.01  # Fallback to 1%
+        else:
+            # Estimate move from recent volatility
+            volatility = np.std(prices[-min(20, len(prices)):]) / np.mean(prices[-min(20, len(prices)):])\n            predicted_move_pct = max(0.005, min(volatility * 2, 0.025))  # 0.5% to 2.5%
+        
+        logger.info(f"🎯 FULL SETUP: {symbol} {bias} | Regime:{regime['type']} Setup:{setup['type']} Trigger:{trigger['type']} | Conf:{confidence*100:.1f}% | Predicted Move: {predicted_move_pct*100:.2f}%")
         
         return {
             'side': bias.lower(),
             'entry_price': prices[-1],
             'confidence': confidence,
             'setup_type': setup['type'],
-            'regime': regime['type']
+            'regime': regime['type'],
+            'predicted_move': predicted_move_pct  # Add prediction to signal
         }
     
     def _check_market_regime(self, prices: np.ndarray) -> dict:
@@ -642,12 +669,15 @@ class AggressiveTrader:
         return ema
     
     async def _execute_trade(self, symbol: str, signal: dict):
-        """Execute PAPER TRADE with STRUCTURE-BASED risk management."""
+        """Execute PAPER TRADE with ML PREDICTION-BASED risk management."""
         try:
             position_value = self.balance * self.position_size_pct
             entry_price = signal['entry_price']
             
-            # STRUCTURE-BASED TP/SL (not fixed percentages)
+            # USE ML PREDICTION for realistic TP instead of fixed 2R
+            predicted_move = signal.get('predicted_move', 0.01)  # Get from signal
+            
+            # STRUCTURE-BASED TP/SL with ML guidance
             prices = np.array([p['price'] for p in self.price_history[symbol]])
             
             # Find recent structure (support/resistance)
@@ -656,31 +686,33 @@ class AggressiveTrader:
             atr = np.std(prices[-14:])  # Average True Range proxy
             
             if signal['side'] == 'long':
-                # LONG: SL below recent low, TP at recent high or 2R
-                sl_price = recent_low - atr * 0.5  # Stop below structure
-                risk = entry_price - sl_price
-                tp_price = entry_price + (risk * self.target_rr_ratio)  # 2R target
+                # LONG: Tight SL, TP based on ML prediction
+                sl_price = entry_price - max(atr * 0.8, entry_price * 0.003)  # Tight stop: 0.3% min
+                # TP based on ML prediction (not fixed 2R)
+                tp_price = entry_price + (entry_price * predicted_move)
                 
-                # Don't let TP go beyond recent high initially (structure target)
+                # Respect structure - don't set TP beyond recent high
                 structure_target = recent_high
                 if tp_price > structure_target and structure_target > entry_price:
                     tp_price = structure_target
+                    logger.info(f"📍 TP adjusted to structure: ${tp_price:.2f}")
             else:
-                # SHORT: SL above recent high, TP at recent low or 2R
-                sl_price = recent_high + atr * 0.5  # Stop above structure
-                risk = sl_price - entry_price
-                tp_price = entry_price - (risk * self.target_rr_ratio)  # 2R target
+                # SHORT: Tight SL, TP based on ML prediction
+                sl_price = entry_price + max(atr * 0.8, entry_price * 0.003)  # Tight stop: 0.3% min
+                # TP based on ML prediction (not fixed 2R)
+                tp_price = entry_price - (entry_price * predicted_move)
                 
-                # Don't let TP go beyond recent low initially (structure target)
+                # Respect structure - don't set TP beyond recent low
                 structure_target = recent_low
                 if tp_price < structure_target and structure_target < entry_price:
                     tp_price = structure_target
+                    logger.info(f"📍 TP adjusted to structure: ${tp_price:.2f}")
             
             # Calculate R:R ratio achieved
             actual_rr = abs(tp_price - entry_price) / abs(entry_price - sl_price)
             
-            # Minimum 1.5:1 R:R required
-            if actual_rr < 1.5:
+            # Accept any positive R:R (prediction-based TP is smarter than fixed ratio)
+            if actual_rr < 0.8:
                 logger.warning(f"⚠️ Poor R:R {actual_rr:.1f}:1 for {symbol} - skipping trade")
                 return
             
@@ -749,7 +781,8 @@ class AggressiveTrader:
                 'opened_at': datetime.now().isoformat(),
                 'confidence': signal['confidence'],
                 'alpaca_order_id': alpaca_order_id,
-                'features': features  # Store for ML training when position closes
+                'features': features,  # Store for ML training when position closes
+                'entry_candles': list(self.candles.get(symbol, []))[-30:]  # Capture last 30 candles at entry
             }
             
             self.positions.append(position)
@@ -778,16 +811,34 @@ class AggressiveTrader:
                     
                     # UPDATE LIVE P&L (unrealized for display only)
                     position['current_price'] = current_price
+                    side = position['side']
+                    entry = position['entry_price']
                     
                     # Calculate P&L percentage
-                    if position['side'] == 'long':
-                        pnl_pct = (current_price - position['entry_price']) / position['entry_price']
+                    if side == 'long':
+                        pnl_pct = (current_price - entry) / entry
                     else:
-                        pnl_pct = (position['entry_price'] - current_price) / position['entry_price']
+                        pnl_pct = (entry - current_price) / entry
                     
                     # Calculate dollar P&L (unrealized)
                     position['pnl'] = position['value'] * pnl_pct
                     position['pnl_pct'] = pnl_pct * 100
+                    
+                    # TRAILING STOP: Move SL up as profit increases (but never down)
+                    risk = abs(entry - position['sl_price'])
+                    current_r = (current_price - entry) / risk if side == 'long' else (entry - current_price) / risk
+                    
+                    if current_r > 0.3:  # Only trail if profitable (> 0.3R)
+                        if side == 'long':
+                            # Move SL up to lock in 40% of current profit
+                            new_sl = entry + ((current_price - entry) * 0.4)
+                            if new_sl > position['sl_price']:  # Only move up, never down
+                                position['sl_price'] = new_sl
+                        else:
+                            # Move SL down to lock in 40% of current profit
+                            new_sl = entry - ((entry - current_price) * 0.4)
+                            if new_sl < position['sl_price']:  # Only move down, never up
+                                position['sl_price'] = new_sl
                     
                     # Update state so WebSocket sends updated P&L
                     state['positions'] = self.positions
@@ -878,8 +929,16 @@ class AggressiveTrader:
                 
                 logger.info(f"📊 PARTIAL EXIT {position['symbol']} {position['side']} | ${pnl:+.2f} ({pnl_pct*100:+.2f}%) | {reason}")
                 
-                # Move stop to breakeven after partial
-                position['sl_price'] = entry
+                # KEEP TRAILING STOP - Don't move to breakeven!
+                # Instead, tighten SL to lock in 50% of current profit
+                if position['side'] == 'long':
+                    profit_so_far = close_price - entry
+                    position['sl_price'] = entry + (profit_so_far * 0.5)  # Lock 50% profit
+                else:
+                    profit_so_far = entry - close_price
+                    position['sl_price'] = entry - (profit_so_far * 0.5)  # Lock 50% profit
+                
+                logger.info(f"🔒 SL tightened to ${position['sl_price']:.2f} (locks 50% profit)")
                 
                 await self._broadcast()
                 return
@@ -902,11 +961,14 @@ class AggressiveTrader:
                 'pnl': pnl,
                 'pnl_pct': pnl_pct * 100,
                 'reason': reason,
-                'closed_at': datetime.now().isoformat()
+                'closed_at': datetime.now().isoformat(),
+                'exit_candles': list(self.candles.get(position['symbol'], []))[-30:]  # Capture exit snapshot
             }
             
             self.trades.insert(0, trade)  # Add to front
-            state['trades'] = self.trades[:50]  # Keep last 50
+            state['trades'] = self.trades[:50]  # Keep last 50 - CRITICAL!
+            
+            logger.info(f"💾 Trade #{len(self.trades)} saved to history")
             
             # Save to database
             self._save_trade(trade)
@@ -1337,30 +1399,161 @@ HTML = """
                 return;
             }
             
-            const recent = trades.slice(0, 10);  // Already reversed in backend
+            const recent = trades.slice(0, 10);  // Show last 10 trades
             container.innerHTML = `
                 <table>
-                    <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&L</th><th>P&L %</th><th>Reason</th></tr>
-                    ${recent.map(t => {
+                    <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Chart</th></tr>
+                    ${recent.map((t, idx) => {
                         const time = new Date(t.closed_at).toLocaleTimeString();
                         const pnl = t.pnl || 0;
                         const pnlPct = t.pnl_pct || 0;
                         const pnlClass = pnl >= 0 ? 'positive' : 'negative';
+                        
+                        // Create mini chart canvas ID
+                        const chartId = `trade-chart-${idx}`;
+                        
+                        // Render mini chart after DOM update
+                        setTimeout(() => renderTradeChart(chartId, t), 10);
+                        
                         return `
                             <tr>
                                 <td>${time}</td>
                                 <td>${t.symbol}</td>
                                 <td>${t.side.toUpperCase()}</td>
                                 <td>$${t.entry_price.toFixed(2)}</td>
-                                <td>$${t.close_price.toFixed(2)}</td>
-                                <td class="${pnlClass}">$${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</td>
-                                <td class="${pnlClass}">${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
-                                <td>${t.reason}</td>
+                                <td>$${(t.close_price || t.entry_price).toFixed(2)}</td>
+                                <td class="${pnlClass}">
+                                    $${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}<br>
+                                    <small>(${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)</small>
+                                </td>
+                                <td><canvas id="${chartId}" width="150" height="60"></canvas></td>
                             </tr>
                         `;
                     }).join('')}
                 </table>
             `;
+        }
+        
+        function renderTradeChart(canvasId, trade) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            
+            // Combine entry and exit candles for full trade visualization
+            const entryCandles = trade.entry_candles || [];
+            const exitCandles = trade.exit_candles || [];
+            const allCandles = [...entryCandles, ...exitCandles];
+            
+            const ctx = canvas.getContext('2d');
+            const width = 150;
+            const height = 60;
+            
+            // Black background
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            
+            if (allCandles.length === 0) {
+                // No chart data - draw simple direction indicator
+                ctx.strokeStyle = trade.pnl >= 0 ? '#0f0' : '#f00';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(10, 30);
+                ctx.lineTo(140, trade.pnl >= 0 ? 10 : 50);
+                ctx.stroke();
+                return;
+            }
+            
+            // Get prices from candles
+            const prices = allCandles.map(c => c.close);
+            const entryPrice = trade.entry_price;
+            const exitPrice = trade.close_price || trade.entry_price;
+            
+            // Get price range including entry and exit
+            const allPrices = [...prices, entryPrice, exitPrice];
+            const minPrice = Math.min(...allPrices);
+            const maxPrice = Math.max(...allPrices);
+            const priceRange = maxPrice - minPrice || 1;
+            
+            // Draw price line (bright green)
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            prices.forEach((price, i) => {
+                const x = (i / (prices.length - 1 || 1)) * width;
+                const y = height - ((price - minPrice) / priceRange) * (height - 10) - 5;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+            
+            // Draw entry line (yellow dashed)
+            const entryY = height - ((entryPrice - minPrice) / priceRange) * (height - 10) - 5;
+            ctx.strokeStyle = '#ff0';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(0, entryY);
+            ctx.lineTo(width, entryY);
+            ctx.stroke();
+            
+            // Draw exit line (green or red based on profit/loss)
+            const exitY = height - ((exitPrice - minPrice) / priceRange) * (height - 10) - 5;
+            ctx.strokeStyle = trade.pnl >= 0 ? '#0f0' : '#f00';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(0, exitY);
+            ctx.lineTo(width, exitY);
+            ctx.stroke();
+            
+            // Reset line dash
+            ctx.setLineDash([]);
+            
+            // Add entry/exit markers (small squares)
+            ctx.fillStyle = '#ff0';
+            ctx.fillRect(5, entryY - 2, 4, 4);  // Entry marker (yellow)
+            
+            ctx.fillStyle = trade.pnl >= 0 ? '#0f0' : '#f00';
+            ctx.fillRect(width - 9, exitY - 2, 4, 4);  // Exit marker (green/red)
+        }
+            
+            // Get price range including entry and exit
+            const allPrices = [...prices, entryPrice, exitPrice];
+            const minPrice = Math.min(...allPrices);
+            const maxPrice = Math.max(...allPrices);
+            const priceRange = maxPrice - minPrice || 1;
+            
+            // Draw price line
+            ctx.strokeStyle = '#0f0';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            prices.forEach((price, i) => {
+                const x = (i / (prices.length - 1 || 1)) * width;
+                const y = height - ((price - minPrice) / priceRange) * height;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+            
+            // Draw entry line (yellow)
+            const entryY = height - ((entryPrice - minPrice) / priceRange) * height;
+            ctx.strokeStyle = '#ff0';
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath();
+            ctx.moveTo(0, entryY);
+            ctx.lineTo(width, entryY);
+            ctx.stroke();
+            
+            // Draw exit line (green or red)
+            const exitY = height - ((exitPrice - minPrice) / priceRange) * height;
+            ctx.strokeStyle = trade.pnl >= 0 ? '#0f0' : '#f00';
+            ctx.setLineDash([2, 2]);
+            ctx.beginPath();
+            ctx.moveTo(0, exitY);
+            ctx.lineTo(width, exitY);
+            ctx.stroke();
+            
+            // Reset line dash
+            ctx.setLineDash([]);
         }
     </script>
 </body>
