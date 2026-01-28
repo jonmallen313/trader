@@ -746,14 +746,21 @@ class AggressiveTrader:
                     if not current_price:
                         continue
                     
-                    # UPDATE LIVE P&L
+                    # UPDATE LIVE P&L (unrealized for display only)
                     position['current_price'] = current_price
+                    
+                    # Calculate P&L percentage
                     if position['side'] == 'long':
                         pnl_pct = (current_price - position['entry_price']) / position['entry_price']
                     else:
                         pnl_pct = (position['entry_price'] - current_price) / position['entry_price']
+                    
+                    # Calculate dollar P&L (unrealized)
                     position['pnl'] = position['value'] * pnl_pct
                     position['pnl_pct'] = pnl_pct * 100
+                    
+                    # Update state so WebSocket sends updated P&L
+                    state['positions'] = self.positions
                     
                     # SMART EXIT LOGIC
                     exit_decision = self._evaluate_exit(position, current_price)
@@ -1060,16 +1067,19 @@ HTML = """
         function update(data) {
             // Stats
             document.getElementById('balance').textContent = `$${data.balance.toFixed(2)}`;
-            const pnl = data.balance - 100;
+            
+            // P&L: Only REALIZED profit from closed trades
+            const realizedPnl = data.balance - 100;  // Balance includes all closed trades
             const pnlEl = document.getElementById('pnl');
-            pnlEl.textContent = `$${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`;
-            pnlEl.className = `stat-value ${pnl >= 0 ? 'positive' : 'negative'}`;
+            pnlEl.textContent = `$${realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(2)}`;
+            pnlEl.className = `stat-value ${realizedPnl >= 0 ? 'positive' : 'negative'}`;
             
             document.getElementById('pos-count').textContent = (data.positions || []).length;
             
-            const trades = data.trades || [];
-            const wins = trades.filter(t => t.pnl > 0).length;
-            const winRate = trades.length > 0 ? (wins / trades.length * 100) : 0;
+            // WIN RATE: Only from CLOSED trades
+            const closedTrades = data.trades || [];
+            const wins = closedTrades.filter(t => (t.pnl || 0) > 0).length;
+            const winRate = closedTrades.length > 0 ? (wins / closedTrades.length * 100) : 0;
             document.getElementById('win-rate').textContent = `${winRate.toFixed(0)}%`;
             
             // Update charts for active positions
@@ -1108,6 +1118,8 @@ HTML = """
                     chartCanvases[symbol] = canvas;
                     
                     const entryPrice = position ? position.entry_price : 0;
+                    const tpPrice = position ? position.tp_price : 0;
+                    const slPrice = position ? position.sl_price : 0;
                     
                     charts[symbol] = new Chart(canvas, {
                         type: 'line',
@@ -1142,13 +1154,48 @@ HTML = """
                                                 backgroundColor: 'rgba(255, 255, 0, 0.8)',
                                                 color: '#000'
                                             }
+                                        },
+                                        tpLine: {
+                                            type: 'line',
+                                            yMin: tpPrice,
+                                            yMax: tpPrice,
+                                            borderColor: '#0f0',
+                                            borderWidth: 2,
+                                            borderDash: [3, 3],
+                                            label: {
+                                                content: `TP: $${tpPrice.toFixed(2)}`,
+                                                enabled: true,
+                                                position: 'end',
+                                                backgroundColor: 'rgba(0, 255, 0, 0.8)',
+                                                color: '#000'
+                                            }
+                                        },
+                                        slLine: {
+                                            type: 'line',
+                                            yMin: slPrice,
+                                            yMax: slPrice,
+                                            borderColor: '#f00',
+                                            borderWidth: 2,
+                                            borderDash: [3, 3],
+                                            label: {
+                                                content: `SL: $${slPrice.toFixed(2)}`,
+                                                enabled: true,
+                                                position: 'end',
+                                                backgroundColor: 'rgba(255, 0, 0, 0.8)',
+                                                color: '#fff'
+                                            }
                                         }
                                     }
                                 }
                             },
                             scales: {
                                 x: { ticks: { color: '#0f0' }, grid: { color: '#003300' } },
-                                y: { ticks: { color: '#0f0' }, grid: { color: '#003300' } }
+                                y: { 
+                                    ticks: { color: '#0f0' }, 
+                                    grid: { color: '#003300' },
+                                    // AUTO-SCALING: Let chart.js auto-scale initially
+                                    type: 'linear'
+                                }
                             }
                         }
                     });
@@ -1157,12 +1204,40 @@ HTML = """
                 // Update chart data and panel color based on P&L
                 if (data.candles && data.candles[symbol]) {
                     const candles = data.candles[symbol].slice(-60); // Last 60 seconds
+                    const prices = candles.map(c => c.close);
                     charts[symbol].data.labels = candles.map((c, i) => i);
-                    charts[symbol].data.datasets[0].data = candles.map(c => c.close);
+                    charts[symbol].data.datasets[0].data = prices;
+                    
+                    // AUTO-SCALE: Calculate min/max to include all important levels
+                    const position = (data.positions || []).find(p => p.symbol === symbol);
+                    if (position && prices.length > 0) {
+                        const currentPrice = prices[prices.length - 1];
+                        const entryPrice = position.entry_price;
+                        const tpPrice = position.tp_price;
+                        const slPrice = position.sl_price;
+                        
+                        // Get min/max from candles
+                        const priceMin = Math.min(...prices);
+                        const priceMax = Math.max(...prices);
+                        
+                        // Include all important levels (entry, TP, SL, current)
+                        const allLevels = [priceMin, priceMax, entryPrice, tpPrice, slPrice, currentPrice];
+                        const minLevel = Math.min(...allLevels);
+                        const maxLevel = Math.max(...allLevels);
+                        
+                        // Add 0.5% padding on both sides for breathing room
+                        const padding = (maxLevel - minLevel) * 0.005;
+                        const yMin = minLevel - padding;
+                        const yMax = maxLevel + padding;
+                        
+                        // Update y-axis range dynamically
+                        charts[symbol].options.scales.y.min = yMin;
+                        charts[symbol].options.scales.y.max = yMax;
+                    }
+                    
                     charts[symbol].update('none');
                     
                     // Update panel background based on current P&L
-                    const position = (data.positions || []).find(p => p.symbol === symbol);
                     if (position) {
                         const pnl = position.pnl || 0;
                         const panelColor = pnl >= 0 ? '#003300' : '#330000';
